@@ -1,0 +1,153 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blackwell-cli"
+version = "0.1.0"
+description = "Blackwell CLI - Simplify composable web stack deployment with intelligent provider selection and cost optimization"
+authors = [
+    {name = "Blackwell Development Team"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+license = {text = "MIT"}
+keywords = ["cli", "web-development", "aws", "cdk", "cms", "ecommerce", "jamstack"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Internet :: WWW/HTTP :: Site Management",
+]
+
+dependencies = [
+    # CLI Framework
+    "typer[all]>=0.9.0",
+    "rich>=13.0.0",
+
+    # Configuration and Validation
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0.0",
+
+    # AWS Integration
+    "boto3>=1.26.0",
+    "botocore>=1.29.0",
+
+    # File and Path Operations
+    "pathlib2>=2.3.0; python_version<'3.4'",
+
+    # Date and Time
+    "python-dateutil>=2.8.0",
+
+    # HTTP Requests
+    "httpx>=0.24.0",
+
+    # Progress and Styling
+    "click-spinner>=0.1.10",
+    "tabulate>=0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+
+    # Code Quality
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+
+    # Development Tools
+    "pre-commit>=3.0.0",
+    "twine>=4.0.0",
+    "build>=0.10.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/blackwell-dev/blackwell-cli"
+Documentation = "https://docs.blackwell.dev/cli"
+Repository = "https://github.com/blackwell-dev/blackwell-cli"
+"Bug Tracker" = "https://github.com/blackwell-dev/blackwell-cli/issues"
+
+[project.scripts]
+blackwell = "blackwell.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["blackwell"]
+
+[tool.black]
+line-length = 88
+target-version = ['py313']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+select = ["E", "W", "F", "I", "B", "C4", "ARG", "SIM"]
+ignore = ["E501", "W503", "B008", "B006"]
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
