@@ -54,12 +54,21 @@ def clients(
             table.add_column("Last Deploy", style="magenta")
         
         for client in clients_list:
-            row = [client.get("name", "Unknown"), client.get("type", "Unknown"), client.get("status", "Unknown")]
-            
+            # Build providers list
+            providers_list = [client.cms_provider]
+            if client.ecommerce_provider:
+                providers_list.append(client.ecommerce_provider)
+
+            # Format last deployment time
+            last_deploy_str = "Never"
+            if client.last_deployed_at:
+                last_deploy_str = client.last_deployed_at.strftime("%Y-%m-%d %H:%M")
+
+            row = [client.name, client.get_service_type(), client.status]
+
             if verbose:
-                providers = ", ".join(client.get("providers", []))
-                last_deploy = client.get("last_deploy", "Never")
-                row.extend([providers, last_deploy])
+                providers = ", ".join(providers_list)
+                row.extend([providers, last_deploy_str])
             
             table.add_row(*row)
         

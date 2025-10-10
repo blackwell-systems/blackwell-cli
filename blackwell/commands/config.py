@@ -37,7 +37,7 @@ def show(
             console.print("[yellow]No configuration found. Run 'blackwell init workspace' to initialize.[/yellow]")
             return
         
-        config_data = config_manager.get_config()
+        config_data = config_manager.config.model_dump()
         
         if section:
             if section in config_data:
@@ -53,8 +53,11 @@ def show(
             table.add_column("Value", style="yellow")
             
             for section_name, section_data in config_data.items():
-                for key, value in section_data.items():
-                    table.add_row(section_name, key, str(value))
+                if isinstance(section_data, dict):
+                    for key, value in section_data.items():
+                        table.add_row(section_name, key, str(value))
+                else:
+                    table.add_row(section_name, "", str(section_data))
             
             console.print(table)
             
@@ -76,14 +79,15 @@ def set(
     console.print("[bold blue]Setting Configuration[/bold blue]")
     
     try:
-        if '.' not in key:
-            console.print("[red]Key must be in 'section.key' format[/red]")
-            raise typer.Exit(1)
-        
-        section, config_key = key.split('.', 1)
-        
         config_manager = ConfigManager()
-        config_manager.set_config_value(section, config_key, value)
+
+        if '.' not in key:
+            # Handle top-level keys
+            config_manager.set(key, value)
+        else:
+            # Handle nested keys
+            section, config_key = key.split('.', 1)
+            config_manager.set(f"{section}.{config_key}", value)
         
         console.print(f"[green]Set {key} = {value}[/green]")
         
@@ -102,14 +106,15 @@ def unset(
     console.print("[bold blue]Removing Configuration[/bold blue]")
     
     try:
-        if '.' not in key:
-            console.print("[red]Key must be in 'section.key' format[/red]")
-            raise typer.Exit(1)
-        
-        section, config_key = key.split('.', 1)
-        
         config_manager = ConfigManager()
-        config_manager.remove_config_value(section, config_key)
+
+        if '.' not in key:
+            # Handle top-level keys
+            config_manager.remove(key)
+        else:
+            # Handle nested keys
+            section, config_key = key.split('.', 1)
+            config_manager.remove(f"{section}.{config_key}")
         
         console.print(f"[green]Removed {key}[/green]")
         

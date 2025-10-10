@@ -304,6 +304,32 @@ class ConfigManager:
             console.print(f"[red]Invalid configuration value: {e}[/red]")
             raise
 
+    def remove(self, key: str) -> None:
+        """Remove configuration value by dot notation key."""
+        keys = key.split(".")
+        config_dict = self._config.model_dump()
+
+        # Navigate to the parent dictionary
+        current = config_dict
+        for k in keys[:-1]:
+            if k not in current:
+                raise KeyError(f"Configuration key '{key}' not found")
+            current = current[k]
+
+        # Remove the value
+        if keys[-1] not in current:
+            raise KeyError(f"Configuration key '{key}' not found")
+
+        del current[keys[-1]]
+
+        # Validate and update configuration
+        try:
+            self._config = CLIConfig.model_validate(config_dict)
+            self.save_config()
+        except ValidationError as e:
+            console.print(f"[red]Invalid configuration after removal: {e}[/red]")
+            raise
+
     def get_platform_path(self) -> Optional[Path]:
         """Get platform-infrastructure project path."""
         return self.config.platform_infrastructure.path
