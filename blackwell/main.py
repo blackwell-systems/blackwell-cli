@@ -36,7 +36,7 @@ console = Console()
 app = typer.Typer(
     name=CLI_NAME,
     help=f"""
-    🚀 {CLI_NAME.title()} CLI - Simplify composable web stack deployment
+    {CLI_NAME.title()} CLI - Simplify composable web stack deployment
 
     Create, deploy, and manage sophisticated multi-client web infrastructure
     with intelligent provider selection and cost optimization.
@@ -44,7 +44,7 @@ app = typer.Typer(
     Features:
     • Mix any CMS (Decap, Tina, Sanity, Contentful) with any E-commerce provider
     • Dual-mode architecture: Direct (simple) or Event-Driven (composition-ready)
-    • Cost optimization from $65/month to $430/month based on provider choice
+    • Cost optimization based on provider choice
     • Automated deployment with AWS CDK integration
     • Provider migration and upgrade assistance
 
@@ -143,56 +143,56 @@ def main(
 app.add_typer(
     init.app,
     name="init",
-    help="🔧 Initialize workspace and create new projects",
+    help="Initialize workspace and create new projects",
     rich_help_panel="Setup Commands",
 )
 
 app.add_typer(
     create.app,
     name="create",
-    help="📦 Create clients, stacks, and templates",
+    help="Create clients, stacks, and templates",
     rich_help_panel="Creation Commands",
 )
 
 app.add_typer(
     deploy.app,
     name="deploy",
-    help="🚀 Deploy, update, and destroy infrastructure",
+    help="Deploy, update, and destroy infrastructure",
     rich_help_panel="Deployment Commands",
 )
 
 app.add_typer(
     cost.app,
     name="cost",
-    help="💰 Estimate costs and optimize spending",
+    help="Estimate costs and optimize spending",
     rich_help_panel="Cost Management",
 )
 
 app.add_typer(
     migrate.app,
     name="migrate",
-    help="🔄 Migrate between providers and modes",
+    help="Migrate between providers and modes",
     rich_help_panel="Migration Commands",
 )
 
 app.add_typer(
     list_cmd.app,
     name="list",
-    help="📋 List clients, providers, and deployments",
+    help="List clients, providers, and deployments",
     rich_help_panel="Information Commands",
 )
 
 app.add_typer(
     config.app,
     name="config",
-    help="⚙️ Manage CLI configuration and settings",
+    help="Manage CLI configuration and settings",
     rich_help_panel="Configuration",
 )
 
 app.add_typer(
     templates.app,
     name="templates",
-    help="📝 Manage and apply client templates",
+    help="Manage and apply client templates",
     rich_help_panel="Template Management",
 )
 
@@ -200,7 +200,7 @@ app.add_typer(
 @app.command(name="doctor", rich_help_panel="Utilities")
 def doctor():
     """
-    🩺 Run comprehensive system diagnostics.
+    Run comprehensive system diagnostics.
 
     Checks system dependencies, configuration, and platform-infrastructure
     integration to diagnose potential issues.
@@ -214,7 +214,7 @@ def doctor():
 @app.command(name="quickstart", rich_help_panel="Setup Commands")
 def quickstart():
     """
-    ⚡ Interactive quickstart guide.
+    Interactive quickstart guide.
 
     Step-by-step guide to set up your first client with intelligent
     provider recommendations and cost optimization.

@@ -24,8 +24,8 @@ console = Console()
 class AWSConfig(BaseModel):
     """AWS configuration settings."""
 
-    profile: str = Field(default="default", description="AWS profile name")
-    region: str = Field(default="us-east-1", description="Default AWS region")
+    profile: str = Field(default="blackwellsystems", description="Blackwell Systems")
+    region: str = Field(default="us-west-2", description="Default AWS region")
     account_id: Optional[str] = Field(
         default=None, description="AWS account ID (auto-detected if not provided)"
     )
