@@ -9,6 +9,8 @@
 - [Installation & Setup](#installation--setup)
 - [Platform Integration Commands](#platform-integration-commands)
 - [Core CLI Commands](#core-cli-commands)
+- [CDK Bootstrap Management](#cdk-bootstrap-management)
+- [System Diagnostics](#system-diagnostics)
 - [Provider Management](#provider-management)
 - [Configuration System](#configuration-system)
 - [Real-World Workflows](#real-world-workflows)
@@ -104,6 +106,13 @@ The Blackwell CLI implements a **Stack Unification Plan** that bridges static CL
 - **Package Manager**: `uv` (recommended) or `pip`
 - **Platform Integration**: Optional platform-infrastructure project
 
+#### **🏗️ AWS CDK Requirements (for deployment)**
+
+- **Node.js**: 18+ (required for AWS CDK)
+- **AWS CDK**: 2.x (`npm install -g aws-cdk`)
+- **AWS CLI**: 2.x with configured credentials
+- **CDK Bootstrap**: Required for deployment (managed by CLI)
+
 ### 🚀 **Quick Installation**
 
 ```bash
@@ -135,6 +144,9 @@ blackwell platform status
 
 # Enable dynamic mode
 blackwell platform enable
+
+# Verify AWS deployment readiness (including CDK bootstrap)
+blackwell doctor --deployment-check
 ```
 
 **Expected Output:**
@@ -376,15 +388,45 @@ blackwell create client --template budget-startup
 ### 🚀 **Deployment Management**
 
 ```bash
-# Deploy client infrastructure
-blackwell deploy --client-id my-startup
+# Deploy client infrastructure (includes automatic bootstrap validation)
+blackwell deploy client my-startup --profile blackwellsystems
 
-# Deploy with specific stack
-blackwell deploy --stack-name MyStartup-Prod-DecapSnipcartComposedStack
+# Deploy with specific AWS parameters
+blackwell deploy client my-startup \
+  --profile blackwellsystems \
+  --account 105249142972 \
+  --region us-west-2 \
+  --approve
 
-# Destroy infrastructure
-blackwell deploy destroy --client-id my-startup
+# Preview deployment without executing (dry-run)
+blackwell deploy client my-startup --dry-run
+
+# Deploy shared infrastructure (foundational resources)
+blackwell deploy shared --profile blackwellsystems --approve
+
+# Check deployment status
+blackwell deploy status --profile blackwellsystems
+
+# Destroy infrastructure (with safety prompts)
+blackwell deploy destroy my-startup --profile blackwellsystems
+
+# Force destroy (skip confirmations - use with caution)
+blackwell deploy destroy my-startup --profile blackwellsystems --force
 ```
+
+**Deployment Process with Bootstrap Integration:**
+1. **Pre-flight Validation**: Checks AWS credentials, CDK availability
+2. **Bootstrap Verification**: Validates CDK bootstrap status
+3. **Configuration Validation**: Ensures client configuration is valid
+4. **Infrastructure Synthesis**: Generates CDK deployment scripts
+5. **Deployment Execution**: Applies infrastructure changes
+6. **Post-deployment Validation**: Confirms successful deployment
+
+**Bootstrap Integration Features:**
+- **Automatic Detection**: All deploy commands check bootstrap status
+- **Interactive Guidance**: Prompts to bootstrap if missing
+- **Safety Checks**: Prevents deployments to unbootstrapped accounts
+- **Skip Option**: `--skip-bootstrap-check` to bypass validation
 
 ### 💰 **Cost Management**
 
@@ -460,6 +502,271 @@ blackwell migrate integration-mode \
   --client-id my-startup \
   --mode event-driven
 ```
+
+---
+
+## CDK Bootstrap Management
+
+AWS CDK requires bootstrapping to deploy infrastructure. The Blackwell CLI provides comprehensive bootstrap detection, validation, and management across multiple AWS accounts and regions.
+
+### 🏗️ **What is CDK Bootstrap?**
+
+CDK Bootstrap creates essential AWS resources for CDK deployments:
+- **CDKToolkit CloudFormation Stack**: Core infrastructure management
+- **S3 Assets Bucket**: Storage for deployment artifacts
+- **ECR Repository**: Container image storage (when needed)
+- **IAM Execution Roles**: Permissions for deployments
+
+`★ Insight ─────────────────────────────────────`
+Bootstrap is **one-time per account/region** but critical for all deployments. The CLI automatically detects bootstrap status and provides intelligent guidance for missing resources.
+`─────────────────────────────────────────────────`
+
+### 📊 **Bootstrap Status Checking**
+
+```bash
+# Check bootstrap status for current account/region
+blackwell deploy bootstrap status
+
+# Check with specific AWS profile
+blackwell deploy bootstrap status --profile blackwellsystems
+
+# Detailed resource validation
+blackwell deploy bootstrap status --verbose
+
+# Check specific account/region
+blackwell deploy bootstrap status \
+  --profile blackwellsystems \
+  --account 105249142972 \
+  --region us-west-2 \
+  --verbose
+```
+
+**Expected Output:**
+```
+CDK Bootstrap Status - 105249142972/us-west-2
+┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Property         ┃ Value                   ┃
+┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Account ID       │ 105249142972            │
+│ Region           │ us-west-2               │
+│ Profile          │ blackwellsystems        │
+│ Bootstrap Status │ ✓ Bootstrapped          │
+│ CDKToolkit Stack │ ✓ Exists                │
+│ Checked At       │ 2025-10-11 20:15:13 UTC │
+└──────────────────┴─────────────────────────┘
+
+                Bootstrap Resource Details
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Resource                  ┃ Type      ┃ Status    ┃ ARN/Details              ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ cdk-hnb659fds-assets-... │ S3 Bucket │ ✓ Healthy │ arn:aws:s3:::cdk-hnb659… │
+│ cdk-hnb659fds-cfn-exec-r │ Iam Roles │ ✓ Healthy │ arn:aws:iam::105249142...│
+│ cdk-hnb659fds-deploy-role│ Iam Roles │ ✓ Healthy │ arn:aws:iam::105249142...│
+│ cdk-hnb659fds-file-publ..│ Iam Roles │ ✓ Healthy │ arn:aws:iam::105249142...│
+│ cdk-hnb659fds-image-publ.│ Iam Roles │ ✓ Healthy │ arn:aws:iam::105249142...│
+└───────────────────────────┴───────────┴───────────┴──────────────────────────┘
+```
+
+### 🚀 **Running Bootstrap**
+
+```bash
+# Bootstrap current account/region
+blackwell deploy bootstrap run
+
+# Bootstrap with specific profile and approve automatically
+blackwell deploy bootstrap run --profile blackwellsystems --approve
+
+# Bootstrap specific account/region
+blackwell deploy bootstrap run \
+  --profile blackwellsystems \
+  --account 105249142972 \
+  --region us-west-2 \
+  --approve
+
+# Force bootstrap (even if already bootstrapped)
+blackwell deploy bootstrap run --force --approve
+
+# Preview what would be bootstrapped (dry-run)
+blackwell deploy bootstrap run --dry-run
+```
+
+**Bootstrap Process:**
+1. **Pre-flight Checks**: Validates AWS credentials and CDK availability
+2. **Current Status**: Checks existing bootstrap state
+3. **Confirmation**: Interactive approval (unless `--approve` used)
+4. **Execution**: Runs `cdk bootstrap` with proper account/region context
+5. **Verification**: Validates successful bootstrap completion
+
+### 🔍 **Bootstrap Validation**
+
+```bash
+# Comprehensive bootstrap validation
+blackwell deploy bootstrap validate --profile blackwellsystems
+
+# Attempt automatic fixes for issues
+blackwell deploy bootstrap validate --profile blackwellsystems --fix
+
+# Validate specific account/region
+blackwell deploy bootstrap validate \
+  --profile blackwellsystems \
+  --account 105249142972 \
+  --region us-west-2
+```
+
+**Validation Checks:**
+- **CDKToolkit Stack**: CloudFormation stack existence and health
+- **S3 Assets Bucket**: Bucket availability and permissions
+- **ECR Repository**: Container registry (if needed)
+- **IAM Execution Roles**: All 4 required roles and permissions
+- **Resource Consistency**: Cross-resource validation
+
+### 🌍 **Multi-Region Bootstrap Management**
+
+```bash
+# Check bootstrap status across multiple regions
+blackwell deploy bootstrap regions \
+  --profile blackwellsystems \
+  --include us-west-2,us-east-1,eu-west-1
+
+# Check all common regions (default behavior)
+blackwell deploy bootstrap regions --profile blackwellsystems
+
+# Exclude specific regions
+blackwell deploy bootstrap regions \
+  --profile blackwellsystems \
+  --exclude ap-southeast-1,ap-northeast-1
+
+# Bootstrap all missing regions automatically
+blackwell deploy bootstrap regions \
+  --profile blackwellsystems \
+  --include us-west-2,us-east-1 \
+  --bootstrap-missing
+
+# Preview multi-region bootstrap (dry-run)
+blackwell deploy bootstrap regions \
+  --profile blackwellsystems \
+  --bootstrap-missing \
+  --dry-run
+```
+
+**Multi-Region Output:**
+```
+                 CDK Bootstrap Status Summary
+┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┓
+┃ Region    ┃ Bootstrap Status ┃ CDKToolkit Stack ┃ Resources ┃
+┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━┩
+│ us-west-2 │ ✓ Ready          │ ✓                │ 5/5       │
+│ us-east-1 │ ⚠ Partial        │ ✓                │ 1/5       │
+│ eu-west-1 │ ✗ Missing        │ ✗                │ 0/0       │
+└───────────┴──────────────────┴──────────────────┴───────────┘
+```
+
+### 🛡️ **Bootstrap Safety Features**
+
+**Interactive Confirmations:**
+- Account/region validation before bootstrap
+- Resource impact warnings
+- Cost implications (minimal for bootstrap)
+
+**Comprehensive Error Handling:**
+- AWS credential validation
+- CDK installation verification
+- Network connectivity checks
+- Graceful failure recovery
+
+**Multi-Profile Support:**
+- Per-profile bootstrap management
+- Cross-account bootstrap coordination
+- Profile-specific credential handling
+
+---
+
+## System Diagnostics
+
+The Blackwell CLI provides comprehensive system diagnostics to ensure optimal deployment readiness and troubleshoot issues across all components.
+
+### 🏥 **Comprehensive System Doctor**
+
+```bash
+# Complete system diagnostics
+blackwell doctor
+
+# Verbose diagnostics with detailed information
+blackwell doctor --verbose
+
+# Deployment-specific readiness check
+blackwell doctor --deployment-check
+
+# Deployment readiness for specific account
+blackwell doctor --deployment-check \
+  --profile blackwellsystems \
+  --account 105249142972 \
+  --region us-west-2
+```
+
+**System Doctor Checks:**
+1. **System Dependencies**: Python, Node.js, AWS CDK, AWS CLI, Git
+2. **AWS Configuration**: Credentials, regions, profiles
+3. **CDK Bootstrap Status**: Account/region bootstrap validation
+4. **Platform Integration**: Dynamic provider matrix status
+5. **Configuration Health**: CLI configuration validation
+
+**Expected Output:**
+```
+                                   ✓ Healthy
+┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Check                ┃ Status                    ┃ Details                   ┃
+┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Python Version       │ Python 3.13.3            │ Blackwell CLI requires    │
+│                      │ (compatible)              │ Python 3.13+              │
+│ AWS CDK              │ CDK 2.1029.4              │ AWS Cloud Development Kit │
+│                      │ (available)               │                           │
+│ AWS Credentials      │ AWS credentials are       │ Account: 105249142972     │
+│                      │ configured and valid      │ Identity: user@domain.com │
+│ CDK Bootstrap        │ Account 105249142972      │ CDK version: detected     │
+│                      │ region us-west-2 is      │                           │
+│                      │ bootstrapped              │                           │
+│ Platform Integration │ Platform integration is   │ Dynamic provider matrix   │
+│                      │ active                    │ available                 │
+└──────────────────────┴───────────────────────────┴───────────────────────────┘
+
+✅ System Health: Good - All critical checks passed!
+```
+
+### 🔧 **Deployment Readiness Check**
+
+```bash
+# Quick deployment readiness validation
+blackwell doctor --deployment-check --profile blackwellsystems
+
+# Expected output for ready system:
+# ✅ System is ready for deployment!
+# Target: 105249142972/us-west-2
+
+# Expected output for issues:
+# ❌ System is not ready for deployment
+# Issues to resolve:
+#   • CDK is not bootstrapped in 105249142972/us-west-2
+# 💡 Quick fixes:
+#    blackwell deploy bootstrap
+```
+
+### 🏗️ **Platform-Specific Diagnostics**
+
+```bash
+# Platform integration diagnostics
+blackwell platform doctor
+
+# Extended platform diagnostics
+blackwell platform status --verbose
+```
+
+**Platform Doctor Features:**
+- **Integration Status**: Platform-infrastructure connection
+- **Provider Matrix Test**: Dynamic provider loading
+- **Configuration Validation**: Settings and paths
+- **CDK Bootstrap Status**: Infrastructure readiness
+- **Recommendations**: Optimization suggestions
 
 ---
 
@@ -610,7 +917,11 @@ blackwell init workspace
 blackwell platform path --auto-discover
 blackwell platform enable
 
-# 2. Create budget-friendly client
+# 2. Verify system readiness (including CDK bootstrap)
+blackwell doctor --deployment-check --profile blackwellsystems
+# If bootstrap needed: blackwell deploy bootstrap run --profile blackwellsystems --approve
+
+# 3. Create budget-friendly client
 blackwell create client \
   --client-id "budget-startup" \
   --cms-provider decap \
@@ -618,14 +929,14 @@ blackwell create client \
   --ssg-engine hugo \
   --interactive
 
-# 3. Review cost estimate
+# 4. Review cost estimate
 blackwell cost estimate --client-id budget-startup
 # Expected: $8-15/month total cost
 
-# 4. Deploy infrastructure
+# 5. Deploy infrastructure (with automatic bootstrap validation)
 blackwell deploy --client-id budget-startup
 
-# 5. Monitor and manage
+# 6. Monitor and manage
 blackwell list deployments
 blackwell platform refresh  # Keep metadata current
 ```
@@ -638,7 +949,17 @@ blackwell config set defaults.service_tier tier3
 blackwell config set defaults.cms_provider contentful
 blackwell config set defaults.ecommerce_provider shopify_basic
 
-# 2. Create enterprise client with composition
+# 2. Comprehensive system validation
+blackwell doctor --verbose
+blackwell platform status
+
+# 3. Multi-region bootstrap preparation (enterprise typically uses multiple regions)
+blackwell deploy bootstrap regions \
+  --profile blackwellsystems \
+  --include us-west-2,us-east-1,eu-west-1 \
+  --bootstrap-missing
+
+# 4. Create enterprise client with composition
 blackwell create client \
   --client-id "enterprise-corp" \
   --cms-provider contentful \
@@ -646,14 +967,13 @@ blackwell create client \
   --ssg-engine gatsby \
   --integration-mode event-driven
 
-# 3. Validate configuration
-blackwell doctor
-blackwell platform status
+# 5. Deployment readiness check
+blackwell doctor --deployment-check --profile blackwellsystems
 
-# 4. Deploy with monitoring
+# 6. Deploy with monitoring
 blackwell deploy --client-id enterprise-corp --verbose
 
-# 5. Ongoing management
+# 7. Ongoing management
 blackwell cost breakdown --client-id enterprise-corp
 blackwell migrate upgrade --client-id enterprise-corp
 ```
@@ -837,6 +1157,62 @@ blackwell config set aws.profile blackwellsystems
 aws iam get-user
 ```
 
+#### **CDK Bootstrap Issues**
+
+```bash
+# Symptoms: "CDK is not bootstrapped" or deployment failures
+
+# Diagnosis:
+blackwell deploy bootstrap status --profile blackwellsystems --verbose
+blackwell doctor --deployment-check --profile blackwellsystems
+
+# Solutions:
+# 1. Bootstrap the account/region
+blackwell deploy bootstrap run --profile blackwellsystems --approve
+
+# 2. Force bootstrap (if partial bootstrap exists)
+blackwell deploy bootstrap run --profile blackwellsystems --force --approve
+
+# 3. Validate bootstrap completion
+blackwell deploy bootstrap validate --profile blackwellsystems
+
+# 4. Multi-region bootstrap (if needed)
+blackwell deploy bootstrap regions --profile blackwellsystems --bootstrap-missing
+
+# Common bootstrap error fixes:
+# - Missing CDK installation: npm install -g aws-cdk
+# - Insufficient permissions: Ensure AdministratorAccess or equivalent
+# - Network issues: Check connectivity to AWS services
+# - Partial bootstrap: Use --force flag to complete
+```
+
+#### **Deployment Readiness Problems**
+
+```bash
+# Symptoms: Deployment fails with infrastructure errors
+
+# Comprehensive diagnosis:
+blackwell doctor --verbose
+blackwell deploy bootstrap status --profile blackwellsystems --verbose
+blackwell platform doctor
+
+# Step-by-step resolution:
+# 1. Check system dependencies
+blackwell doctor
+
+# 2. Validate AWS configuration
+aws sts get-caller-identity --profile blackwellsystems
+
+# 3. Ensure CDK bootstrap
+blackwell deploy bootstrap run --profile blackwellsystems --approve
+
+# 4. Verify platform integration
+blackwell platform status
+
+# 5. Test deployment readiness
+blackwell doctor --deployment-check --profile blackwellsystems
+```
+
 ### 🔧 **Emergency Recovery**
 
 ```bash
@@ -848,7 +1224,21 @@ blackwell platform disable
 blackwell config reset
 rm -rf ~/.blackwell/
 
-# Reinitialize
+# CDK bootstrap recovery (if deployments are failing)
+# 1. Check current bootstrap state
+blackwell deploy bootstrap status --profile blackwellsystems --verbose
+
+# 2. Force re-bootstrap (nuclear option)
+blackwell deploy bootstrap run --profile blackwellsystems --force --approve
+
+# 3. Multi-region recovery (if using multiple regions)
+blackwell deploy bootstrap regions \
+  --profile blackwellsystems \
+  --include us-west-2,us-east-1 \
+  --bootstrap-missing
+
+# Complete system recovery
+blackwell doctor --verbose
 blackwell init workspace
 ```
 
@@ -960,6 +1350,8 @@ Blackwell CLI with platform integration represents a quantum leap in web develop
 ✅ **Complete Control** - Multiple layers of configuration and control
 ✅ **Future-Proof** - Automatic synchronization with platform evolution
 ✅ **Production Ready** - Comprehensive diagnostics and error handling
+✅ **Enterprise AWS Integration** - Complete CDK bootstrap management and multi-region support
+✅ **Deployment Intelligence** - Automatic infrastructure readiness validation
 
 ### **Ready to Get Started?**
 

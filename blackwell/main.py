@@ -25,6 +25,7 @@ from blackwell.commands import (
     config,
     templates,
     platform,
+    bootstrap,
 )
 
 # Import core components
@@ -170,6 +171,14 @@ app.add_typer(
     rich_help_panel="Deployment Commands",
 )
 
+# Add bootstrap commands as subcommands under deploy
+deploy.app.add_typer(
+    bootstrap.app,
+    name="bootstrap",
+    help="Manage CDK bootstrap operations",
+    rich_help_panel="Bootstrap Management",
+)
+
 app.add_typer(
     cost.app,
     name="cost",
@@ -214,17 +223,35 @@ app.add_typer(
 
 
 @app.command(name="doctor", rich_help_panel="Utilities")
-def doctor():
+def doctor(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed diagnostic information"),
+    deployment_check: bool = typer.Option(False, "--deployment-check", help="Check deployment readiness instead of full diagnosis"),
+    account: Optional[str] = typer.Option(None, "--account", help="AWS account ID for deployment check"),
+    region: Optional[str] = typer.Option(None, "--region", help="AWS region for deployment check"),
+    profile: Optional[str] = typer.Option(None, "--profile", help="AWS profile for deployment check"),
+):
     """
     Run comprehensive system diagnostics.
 
-    Checks system dependencies, configuration, and platform-infrastructure
-    integration to diagnose potential issues.
+    Checks system dependencies, AWS configuration, CDK bootstrap status,
+    and platform-infrastructure integration to diagnose potential issues.
     """
     from blackwell.core.system_doctor import SystemDoctor
 
     doctor = SystemDoctor(config_manager=get_config_manager())
-    doctor.run_full_diagnosis()
+
+    if deployment_check:
+        # Run deployment readiness check
+        success = doctor.check_deployment_readiness(
+            account_id=account,
+            region=region,
+            profile=profile
+        )
+        raise typer.Exit(0 if success else 1)
+    else:
+        # Run full system diagnosis
+        success = doctor.run_full_diagnosis(verbose=verbose)
+        raise typer.Exit(0 if success else 1)
 
 
 @app.command(name="quickstart", rich_help_panel="Setup Commands")

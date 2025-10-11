@@ -16,7 +16,17 @@ import logging
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+# Import registry from blackwell-core
+try:
+    from blackwell_core.registry import default_registry
+    REGISTRY_AVAILABLE = True
+    logger = logging.getLogger(__name__)
+    logger.info("S3 Provider Registry available")
+except ImportError as e:
+    default_registry = None
+    REGISTRY_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.debug(f"S3 Provider Registry unavailable: {e}")
 
 # Safe Import Pattern - CLI works even without platform-infrastructure
 try:
@@ -36,22 +46,54 @@ def is_platform_available() -> bool:
 
 def get_platform_metadata() -> Dict[str, Any]:
     """
-    Get platform metadata with graceful fallback.
+    Get platform metadata with multi-tier fallback system.
+
+    Fallback Order:
+    1. S3 Provider Registry (distributed, globally cached)
+    2. PlatformStackFactory (direct platform access)
+    3. Empty dict (graceful degradation)
 
     Returns:
         Platform metadata dictionary, or empty dict if unavailable
     """
+
+    # Primary: Try S3 Provider Registry
+    if REGISTRY_AVAILABLE and default_registry:
+        try:
+            logger.debug("Attempting to fetch metadata from S3 Provider Registry...")
+
+            # Get manifest to understand available stacks
+            manifest = default_registry.get_manifest_sync()
+            metadata = {}
+
+            # Fetch all stack metadata from registry
+            for category, stacks in manifest.get("stacks", {}).items():
+                for stack_type in stacks:
+                    try:
+                        stack_data = default_registry.get_stack_metadata_sync(stack_type)
+                        metadata[stack_type] = stack_data
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch {stack_type} from registry: {e}")
+
+            if metadata:
+                logger.info(f"✅ Retrieved registry metadata: {len(metadata)} stack types")
+                return metadata
+
+        except Exception as e:
+            logger.warning(f"S3 Provider Registry failed: {e}, falling back to platform factory")
+
+    # Secondary: Try PlatformStackFactory
     if is_platform_available():
         try:
             metadata = PlatformStackFactory.STACK_METADATA
-            logger.debug(f"Retrieved platform metadata: {len(metadata)} stack types")
+            logger.info(f"Retrieved platform factory metadata: {len(metadata)} stack types")
             return metadata
         except Exception as e:
             logger.warning(f"Failed to retrieve platform metadata: {e}")
-            return {}
-    else:
-        logger.debug("Platform metadata unavailable - using fallback")
-        return {}
+
+    # Tertiary: Graceful degradation
+    logger.warning("All metadata sources unavailable - using empty metadata")
+    return {}
 
 
 def get_platform_recommendations(requirements: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -274,33 +316,85 @@ def _infer_ecosystem(ssg_engine: str) -> str:
     return ecosystems.get(ssg_engine, "javascript")
 
 
+def get_registry_status() -> Dict[str, Any]:
+    """
+    Get S3 Provider Registry status for diagnostics.
+
+    Returns:
+        Registry status dictionary with health information
+    """
+    if not REGISTRY_AVAILABLE or not default_registry:
+        return {
+            "available": False,
+            "reason": "Registry not imported or initialized",
+            "health": "unavailable"
+        }
+
+    try:
+        health_status = default_registry.get_health_status()
+        cache_stats = default_registry.get_cache_stats()
+
+        return {
+            "available": True,
+            "health": health_status["status"],
+            "uptime_score": health_status["uptime_score"],
+            "base_url": health_status["base_url"],
+            "cache_hit_ratio": health_status["cache_hit_ratio"],
+            "consecutive_failures": health_status["consecutive_failures"],
+            "cache_entries": cache_stats["cache_entries"],
+            "fresh_entries": cache_stats["fresh_entries"],
+            "http_client": health_status["http_client"],
+            "fallback_available": health_status["fallback_available"]
+        }
+
+    except Exception as e:
+        return {
+            "available": True,
+            "health": "error",
+            "error": str(e)
+        }
+
+
 def get_integration_status() -> Dict[str, Any]:
     """
     Get detailed integration status for diagnostics.
 
     Returns:
-        Status dictionary with integration details
+        Status dictionary with integration details including registry health
     """
+    metadata = get_platform_metadata()
+
+    # Determine primary metadata source
+    metadata_source = "none"
+    if REGISTRY_AVAILABLE and default_registry:
+        try:
+            # Try a quick registry health check
+            manifest = default_registry.get_manifest_sync()
+            if manifest:
+                metadata_source = "registry"
+        except:
+            pass
+
+    if metadata_source == "none" and is_platform_available():
+        metadata_source = "platform_factory"
+
     status = {
         "platform_available": is_platform_available(),
-        "metadata_count": 0,
-        "last_error": None,
-        "integration_mode": "static"
+        "registry_available": REGISTRY_AVAILABLE,
+        "metadata_source": metadata_source,
+        "metadata_count": len(metadata),
+        "integration_mode": "distributed" if metadata_source == "registry" else "direct" if metadata_source == "platform_factory" else "static",
+        "registry_status": get_registry_status()
     }
 
+    # Test functionality if platform available
     if is_platform_available():
         try:
-            metadata = get_platform_metadata()
-            status["metadata_count"] = len(metadata)
-            status["integration_mode"] = "dynamic"
-
-            # Test functionality
             test_recommendations = get_platform_recommendations({"test": True})
             status["recommendations_working"] = len(test_recommendations) >= 0
-
         except Exception as e:
-            status["last_error"] = str(e)
-            status["integration_mode"] = "static (error)"
+            status["recommendations_error"] = str(e)
+            status["recommendations_working"] = False
 
     logger.debug(f"Integration status: {status}")
     return status

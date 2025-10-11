@@ -150,5 +150,5 @@ markers = [
 ]
 
 [tool.uv.sources]
-blackwell-core = { path = "../blackwell-core", editable = true }
 web-services-infrastructure = { path = "../platform-infrastructure", editable = true }
+blackwell-core = { path = "../blackwell-core", editable = true }

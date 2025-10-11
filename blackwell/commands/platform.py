@@ -365,8 +365,32 @@ def doctor():
 
         console.print()
 
+        # CDK Bootstrap Status Check
+        console.print("[bold]4. CDK Bootstrap Status[/bold]")
+        try:
+            from blackwell.core.cdk_bootstrap_checker import CDKBootstrapChecker
+
+            bootstrap_checker = CDKBootstrapChecker(console)
+            bootstrap_status = bootstrap_checker.check_bootstrap_status()
+
+            if bootstrap_status.is_bootstrapped:
+                console.print(f"✓ CDK bootstrap: {bootstrap_status.account_id}/{bootstrap_status.region} is ready")
+            elif bootstrap_status.cdk_toolkit_stack_exists:
+                console.print(f"⚠ CDK bootstrap: {bootstrap_status.account_id}/{bootstrap_status.region} is partially bootstrapped")
+            else:
+                console.print(f"✗ CDK bootstrap: {bootstrap_status.account_id}/{bootstrap_status.region} is not bootstrapped")
+
+            if bootstrap_status.errors:
+                for error in bootstrap_status.errors:
+                    console.print(f"  ⚠ {error}")
+
+        except Exception as e:
+            console.print(f"⚠ Bootstrap check failed: {e}")
+
+        console.print()
+
         # Recommendations
-        console.print("[bold]4. Recommendations[/bold]")
+        console.print("[bold]5. Recommendations[/bold]")
         status = config_manager.get_platform_integration_status()
 
         recommendations = []
@@ -378,6 +402,13 @@ def doctor():
             recommendations.append("Enable platform integration: blackwell platform enable")
         else:
             recommendations.append("Platform integration is working well!")
+
+        # Add bootstrap recommendations if needed
+        try:
+            if 'bootstrap_status' in locals() and not bootstrap_status.is_bootstrapped:
+                recommendations.append("Bootstrap CDK: blackwell deploy bootstrap run")
+        except:
+            pass
 
         for rec in recommendations:
             console.print(f"• {rec}")

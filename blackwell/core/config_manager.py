@@ -620,6 +620,44 @@ class ConfigManager:
                 f"Stack types available from platform"
             )
 
+        # Show registry status if platform is available
+        if platform_available:
+            try:
+                # Try to get registry status from platform factory
+                provider_matrix = self.get_provider_matrix()
+                if hasattr(provider_matrix, '_data_source') and provider_matrix._data_source == "platform":
+                    registry_status = self._get_registry_status()
+                    if registry_status:
+                        # Registry Health
+                        health = registry_status.get("health", "unknown")
+                        health_color = "green" if health == "healthy" else "yellow" if health == "degraded" else "red"
+                        table.add_row(
+                            "Registry Status",
+                            f"[{health_color}]{health.title()}[/{health_color}]",
+                            f"Source: {registry_status.get('metadata_source', 'unknown')}"
+                        )
+
+                        # Registry Endpoint
+                        if registry_status.get("base_url"):
+                            table.add_row(
+                                "Registry Endpoint",
+                                "✓ S3+CloudFront",
+                                f"{registry_status['base_url']}"
+                            )
+
+                        # Cache Performance (if verbose mode)
+                        if self.verbose and "cache_hit_ratio" in registry_status:
+                            cache_ratio = registry_status["cache_hit_ratio"]
+                            cache_color = "green" if cache_ratio > 0.8 else "yellow" if cache_ratio > 0.5 else "dim"
+                            table.add_row(
+                                "Registry Cache",
+                                f"[{cache_color}]{cache_ratio:.1%} hit ratio[/{cache_color}]",
+                                f"Client: {registry_status.get('http_client', 'unknown')}"
+                            )
+            except Exception as e:
+                if self.verbose:
+                    console.print(f"[dim]Could not fetch registry status: {e}[/dim]")
+
         console.print(table)
 
         # Show recommendations
@@ -638,3 +676,34 @@ class ConfigManager:
         if recommendations:
             rec_text = "\n".join(f"• {rec}" for rec in recommendations)
             console.print(Panel(rec_text, title="💡 Recommendations", border_style="blue"))
+
+    def _get_registry_status(self) -> Optional[Dict[str, Any]]:
+        """Get S3 Provider Registry status for detailed metadata source information."""
+        try:
+            # Import platform factory to access registry status
+            platform_path = self.get_platform_path()
+            if not platform_path:
+                return None
+
+            # Add platform path to sys.path temporarily
+            import sys
+            original_path = sys.path.copy()
+            try:
+                sys.path.insert(0, str(platform_path))
+
+                from shared.factories.platform_stack_factory import PlatformStackFactory
+                registry_status = PlatformStackFactory.get_registry_status()
+
+                if self.verbose:
+                    console.print(f"[dim]Registry status retrieved: {registry_status.get('health', 'unknown')}[/dim]")
+
+                return registry_status
+
+            finally:
+                # Restore original sys.path
+                sys.path = original_path
+
+        except Exception as e:
+            if self.verbose:
+                console.print(f"[dim]Failed to get registry status: {e}[/dim]")
+            return None

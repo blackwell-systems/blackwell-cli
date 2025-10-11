@@ -46,8 +46,24 @@ def find_platform_infrastructure_path() -> Optional[Path]:
     return None
 
 
-def check_cdk_prerequisites(profile: Optional[str] = None) -> bool:
-    """Check if CDK and AWS CLI are properly configured for a specific profile."""
+def check_cdk_prerequisites(
+    profile: Optional[str] = None,
+    account_id: Optional[str] = None,
+    region: Optional[str] = None,
+    skip_bootstrap_check: bool = False
+) -> bool:
+    """
+    Check if CDK and AWS CLI are properly configured for deployment.
+
+    Args:
+        profile: AWS profile to use
+        account_id: Target AWS account ID
+        region: Target AWS region
+        skip_bootstrap_check: Skip CDK bootstrap validation
+
+    Returns:
+        True if all prerequisites pass, False otherwise
+    """
     try:
         # Check that CDK is installed
         result = subprocess.run(["cdk", "--version"], capture_output=True, text=True)
@@ -55,6 +71,9 @@ def check_cdk_prerequisites(profile: Optional[str] = None) -> bool:
             console.print("[red]AWS CDK not found. Please install CDK:[/red]")
             console.print("   npm install -g aws-cdk")
             return False
+
+        cdk_version = result.stdout.strip()
+        console.print(f"[green]✓ CDK available:[/green] {cdk_version}")
 
         # Validate AWS credentials using the specified profile
         sts_cmd = ["aws", "sts", "get-caller-identity"]
@@ -64,10 +83,59 @@ def check_cdk_prerequisites(profile: Optional[str] = None) -> bool:
         result = subprocess.run(sts_cmd, capture_output=True, text=True)
         if result.returncode != 0:
             console.print(f"[red]AWS CLI not configured or invalid credentials for profile '{profile}'.[/red]")
-            console.print(f"   Please run: aws configure --profile {profile}")
+            if profile:
+                console.print(f"   Please run: aws configure --profile {profile}")
+            else:
+                console.print("   Please run: aws configure")
             return False
 
-        console.print(f"[green]CDK identity check:[/green] {result.stdout.strip()}")
+        # Parse identity information
+        import json
+        identity = json.loads(result.stdout)
+        detected_account = identity.get("Account")
+        user_info = identity.get("Arn", "").split("/")[-1]
+
+        console.print(f"[green]✓ AWS identity:[/green] {user_info} (Account: {detected_account})")
+
+        # Use detected account if not provided
+        target_account = account_id or detected_account
+
+        # Check CDK bootstrap status (unless skipped)
+        if not skip_bootstrap_check:
+            console.print("[blue]Checking CDK bootstrap status...[/blue]")
+
+            # Import bootstrap checker
+            from blackwell.core.cdk_bootstrap_checker import CDKBootstrapChecker
+
+            bootstrap_checker = CDKBootstrapChecker(console=console)
+            bootstrap_status = bootstrap_checker.check_bootstrap_status(
+                account_id=target_account,
+                region=region,
+                profile=profile
+            )
+
+            if bootstrap_status.is_bootstrapped:
+                console.print(f"[green]✓ CDK bootstrap:[/green] {bootstrap_status.account_id}/{bootstrap_status.region} is ready")
+            elif bootstrap_status.cdk_toolkit_stack_exists:
+                console.print(f"[yellow]⚠ CDK bootstrap:[/yellow] {bootstrap_status.account_id}/{bootstrap_status.region} is partially bootstrapped")
+                console.print("[yellow]   Some resources may be missing. Deployment may still work.[/yellow]")
+            else:
+                console.print(f"[red]✗ CDK bootstrap:[/red] {bootstrap_status.account_id}/{bootstrap_status.region} is not bootstrapped")
+                console.print("\n[yellow]Bootstrap is required for CDK deployments.[/yellow]")
+                console.print("[dim]Run one of:[/dim]")
+                console.print("   blackwell deploy bootstrap run")
+                if profile:
+                    console.print(f"   cdk bootstrap --profile {profile} {bootstrap_status.account_id}/{bootstrap_status.region}")
+                else:
+                    console.print(f"   cdk bootstrap {bootstrap_status.account_id}/{bootstrap_status.region}")
+
+                # Ask if user wants to continue anyway
+                from rich.prompt import Confirm
+                if not Confirm.ask("\n[yellow]Continue deployment without bootstrap?[/yellow]"):
+                    return False
+
+                console.print("[yellow]⚠ Proceeding without bootstrap - deployment may fail[/yellow]")
+
         return True
 
     except FileNotFoundError as e:
@@ -76,6 +144,12 @@ def check_cdk_prerequisites(profile: Optional[str] = None) -> bool:
             console.print("   npm install -g aws-cdk")
         else:
             console.print("[red]AWS CLI not found. Please install AWS CLI.[/red]")
+        return False
+    except json.JSONDecodeError:
+        console.print("[red]Failed to parse AWS identity information[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]Error checking prerequisites: {e}[/red]")
         return False
 
 
@@ -89,6 +163,7 @@ def client(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deployed without deploying"),
     approve: bool = typer.Option(False, "--approve", "-y", help="Auto-approve deployment"),
     force: bool = typer.Option(False, "--force", help="Force deployment even if validation fails"),
+    skip_bootstrap_check: bool = typer.Option(False, "--skip-bootstrap-check", help="Skip CDK bootstrap validation"),
 ):
     """Deploy client infrastructure."""
     console.print(Panel.fit(
@@ -149,8 +224,13 @@ def client(
 
         console.print(f"[dim]CDK Context → Account: {aws_account}, Region: {aws_region}, Profile: {aws_profile}[/dim]")
 
-        # Check prerequisites
-        if not check_cdk_prerequisites(profile=aws_profile):
+        # Check prerequisites including bootstrap status
+        if not check_cdk_prerequisites(
+            profile=aws_profile,
+            account_id=aws_account,
+            region=aws_region,
+            skip_bootstrap_check=skip_bootstrap_check
+        ):
             raise typer.Exit(1)
 
         # Update client status
@@ -229,6 +309,7 @@ def shared(
     profile: Optional[str] = typer.Option(None, "--profile", help="AWS profile to use"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deployed without deploying"),
     approve: bool = typer.Option(False, "--approve", "-y", help="Auto-approve deployment"),
+    skip_bootstrap_check: bool = typer.Option(False, "--skip-bootstrap-check", help="Skip CDK bootstrap validation"),
 ):
     """Deploy shared infrastructure required for all client deployments."""
 
@@ -255,8 +336,13 @@ def shared(
 
     console.print(f"[green]Found platform-infrastructure at:[/green] {platform_path}")
 
-    # Check prerequisites under the selected profile
-    if not check_cdk_prerequisites(profile=profile):
+    # Check prerequisites including bootstrap status
+    if not check_cdk_prerequisites(
+        profile=profile,
+        account_id=aws_account,
+        region=aws_region,
+        skip_bootstrap_check=skip_bootstrap_check
+    ):
         raise typer.Exit(1)
 
     config = get_config_manager()
@@ -623,6 +709,40 @@ def _check_shared_infrastructure_status(aws_profile: str, aws_region: str) -> di
         }
 
 
+def _get_registry_status_for_shared() -> Optional[dict]:
+    """Get S3 Provider Registry status for display in shared infrastructure status."""
+    try:
+        # Get config manager to access platform integration
+        config = get_config_manager()
+
+        # Check if platform integration is available
+        if not config.is_platform_available():
+            return None
+
+        platform_path = config.get_platform_path()
+        if not platform_path:
+            return None
+
+        # Add platform path to sys.path temporarily to access registry status
+        import sys
+        original_path = sys.path.copy()
+        try:
+            sys.path.insert(0, str(platform_path))
+
+            from shared.factories.platform_stack_factory import PlatformStackFactory
+            registry_status = PlatformStackFactory.get_registry_status()
+
+            return registry_status
+
+        finally:
+            # Restore original sys.path
+            sys.path = original_path
+
+    except Exception as e:
+        # Silently fail for deploy status - registry status is supplementary information
+        return None
+
+
 def _display_shared_status(status_info: dict) -> None:
     """Display shared infrastructure status in a formatted way."""
     from rich.table import Table
@@ -656,6 +776,33 @@ def _display_shared_status(status_info: dict) -> None:
             table.add_row("Last Updated", status_info['last_updated_time'].strftime('%Y-%m-%d %H:%M:%S UTC'))
         if status_info.get('description'):
             table.add_row("Description", status_info['description'])
+
+        # Add Provider Registry status if shared infrastructure is healthy
+        if status in ['CREATE_COMPLETE', 'UPDATE_COMPLETE']:
+            registry_status = _get_registry_status_for_shared()
+            if registry_status:
+                # Registry Health
+                health = registry_status.get("health", "unknown")
+                health_color = "green" if health == "healthy" else "yellow" if health == "degraded" else "red"
+                table.add_row(
+                    "Provider Registry",
+                    f"[{health_color}]✅ {health.title()}[/{health_color}]",
+                )
+
+                # Registry Endpoint
+                if registry_status.get("base_url"):
+                    table.add_row(
+                        "Registry Endpoint",
+                        f"[dim]{registry_status['base_url']}[/dim]"
+                    )
+
+                # Registry Source
+                source = registry_status.get("metadata_source", "unknown")
+                source_color = "green" if source == "registry" else "yellow"
+                table.add_row(
+                    "Metadata Source",
+                    f"[{source_color}]{source.title()}[/{source_color}]"
+                )
 
     if status_info.get('error'):
         table.add_row("Error", f"[red]{status_info['error']}[/red]")
