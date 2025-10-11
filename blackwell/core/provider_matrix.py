@@ -1,49 +1,49 @@
 """
 Provider Matrix for Blackwell CLI
 
-Defines the compatibility matrix for CMS, E-commerce, and SSG providers.
-Used for validation and intelligent provider recommendations.
+CLI-specific wrapper around blackwell-core provider matrix functionality.
+Provides backward compatibility for existing CLI workflows.
 """
 
-from typing import Dict, List, Set
-from enum import Enum
+from typing import Dict, List, Set, Any
 
-
-class ProviderType(str, Enum):
-    """Provider type enumeration."""
-    CMS = "cms"
-    ECOMMERCE = "ecommerce"
-    SSG = "ssg"
+from blackwell_core.engine.provider_matrix import ProviderMatrix as CoreProviderMatrix
+from blackwell_core.models.enums import SSGEngine, CMSProvider, EcommerceProvider
+from blackwell_core.models.providers import ProviderCompatibility
 
 
 class ProviderMatrix:
     """
-    Provider compatibility and validation matrix.
+    CLI-specific provider matrix wrapper around blackwell-core.
 
-    Defines:
-    - Valid providers for each type
-    - Cost information
-    - Feature compatibility
-    - Integration requirements
+    Provides backward compatibility for existing CLI workflows while leveraging
+    the blackwell-core provider matrix for accurate compatibility checking.
     """
 
     def __init__(self):
-        """Initialize provider matrix with current provider definitions."""
+        """Initialize CLI provider matrix with core engine."""
+        self._core_matrix = CoreProviderMatrix()
 
-        # CMS Providers
-        self.cms_providers: Dict[str, Dict] = {
+        # Legacy provider data structures for CLI compatibility
+        self.cms_providers = self._build_cms_providers_dict()
+        self.ecommerce_providers = self._build_ecommerce_providers_dict()
+        self.ssg_engines = self._build_ssg_engines_dict()
+
+    def _build_cms_providers_dict(self) -> Dict[str, Dict]:
+        """Build CLI-compatible CMS providers dictionary."""
+        return {
             "decap": {
                 "name": "Decap CMS",
                 "cost": 0.0,
                 "features": ["git_based", "free", "open_source"],
-                "compatible_ssg": ["hugo", "eleventy", "astro", "gatsby"],
+                "compatible_ssg": ["hugo", "eleventy", "astro", "gatsby", "jekyll"],
                 "complexity": "intermediate",
             },
             "tina": {
                 "name": "Tina CMS",
                 "cost": 29.0,
                 "features": ["visual_editing", "git_based", "live_preview"],
-                "compatible_ssg": ["astro", "eleventy", "nextjs", "nuxt"],
+                "compatible_ssg": ["astro", "eleventy", "nextjs", "nuxt", "jekyll"],
                 "complexity": "beginner",
             },
             "sanity": {
@@ -62,14 +62,15 @@ class ProviderMatrix:
             },
         }
 
-        # E-commerce Providers
-        self.ecommerce_providers: Dict[str, Dict] = {
+    def _build_ecommerce_providers_dict(self) -> Dict[str, Dict]:
+        """Build CLI-compatible e-commerce providers dictionary."""
+        return {
             "snipcart": {
                 "name": "Snipcart",
                 "cost": 29.0,
                 "transaction_fee": 0.02,
                 "features": ["simple", "embed", "quick_setup"],
-                "compatible_ssg": ["hugo", "eleventy", "astro", "gatsby"],
+                "compatible_ssg": ["hugo", "eleventy", "astro", "gatsby", "jekyll"],
                 "complexity": "beginner",
             },
             "foxy": {
@@ -77,7 +78,7 @@ class ProviderMatrix:
                 "cost": 75.0,
                 "transaction_fee": 0.015,
                 "features": ["advanced", "customizable", "api_rich"],
-                "compatible_ssg": ["hugo", "eleventy", "astro", "gatsby"],
+                "compatible_ssg": ["hugo", "eleventy", "astro", "gatsby", "jekyll"],
                 "complexity": "intermediate",
             },
             "shopify_basic": {
@@ -90,8 +91,9 @@ class ProviderMatrix:
             },
         }
 
-        # SSG Engines
-        self.ssg_engines: Dict[str, Dict] = {
+    def _build_ssg_engines_dict(self) -> Dict[str, Dict]:
+        """Build CLI-compatible SSG engines dictionary."""
+        return {
             "hugo": {
                 "name": "Hugo",
                 "build_speed": "fastest",
@@ -140,6 +142,14 @@ class ProviderMatrix:
                 "complexity": "advanced",
                 "ecosystem": "vue",
             },
+            "jekyll": {
+                "name": "Jekyll",
+                "build_speed": "medium",
+                "language": "ruby",
+                "features": ["github_pages", "blog_ready", "liquid_templates", "technical_focus"],
+                "complexity": "beginner",
+                "ecosystem": "ruby",
+            },
         }
 
     def is_provider_valid(self, provider_type: str, provider_name: str) -> bool:
@@ -165,7 +175,22 @@ class ProviderMatrix:
     def is_combination_compatible(
         self, cms_provider: str, ecommerce_provider: str, ssg_engine: str
     ) -> bool:
-        """Check if a combination of providers is compatible."""
+        """Check if a combination of providers is compatible using core matrix."""
+        try:
+            compatibility = self._core_matrix.check_compatibility(
+                cms_provider=cms_provider,
+                ecommerce_provider=ecommerce_provider,
+                ssg_engine=ssg_engine
+            )
+            return compatibility.is_compatible
+        except Exception:
+            # Fallback to legacy validation for CLI compatibility
+            return self._legacy_compatibility_check(cms_provider, ecommerce_provider, ssg_engine)
+
+    def _legacy_compatibility_check(
+        self, cms_provider: str, ecommerce_provider: str, ssg_engine: str
+    ) -> bool:
+        """Legacy compatibility check for CLI backward compatibility."""
         cms_info = self.get_provider_info("cms", cms_provider)
         ecommerce_info = self.get_provider_info("ecommerce", ecommerce_provider) if ecommerce_provider else {}
 
@@ -177,22 +202,45 @@ class ProviderMatrix:
         if ecommerce_info and ssg_engine not in ecommerce_info.get("compatible_ssg", []):
             return False
 
+        # Jekyll-specific validation
+        if ssg_engine == "jekyll":
+            return self._validate_jekyll_combination(cms_provider, ecommerce_provider)
+
+        return True
+
+    def _validate_jekyll_combination(self, cms_provider: str, ecommerce_provider: str) -> bool:
+        """Validate Jekyll-specific provider combinations."""
+        git_based_cms = ["decap", "tina"]
+        if cms_provider and cms_provider not in git_based_cms:
+            return False
+
+        jekyll_compatible_ecommerce = ["snipcart", "foxy", None]
+        if ecommerce_provider not in jekyll_compatible_ecommerce:
+            return False
+
         return True
 
     def get_compatible_ssg_engines(
         self, cms_provider: str, ecommerce_provider: str = None
     ) -> List[str]:
         """Get list of SSG engines compatible with the given providers."""
-        cms_info = self.get_provider_info("cms", cms_provider)
-        cms_compatible = set(cms_info.get("compatible_ssg", []))
+        try:
+            compatible_providers = self._core_matrix.get_compatible_providers(
+                cms_provider=cms_provider,
+                ecommerce_provider=ecommerce_provider
+            )
+            return [engine.value for engine in compatible_providers.get("ssg_engines", [])]
+        except Exception:
+            # Fallback to legacy logic
+            cms_info = self.get_provider_info("cms", cms_provider)
+            cms_compatible = set(cms_info.get("compatible_ssg", []))
 
-        if ecommerce_provider:
-            ecommerce_info = self.get_provider_info("ecommerce", ecommerce_provider)
-            ecommerce_compatible = set(ecommerce_info.get("compatible_ssg", []))
-            # Return intersection of compatible engines
-            return list(cms_compatible.intersection(ecommerce_compatible))
+            if ecommerce_provider:
+                ecommerce_info = self.get_provider_info("ecommerce", ecommerce_provider)
+                ecommerce_compatible = set(ecommerce_info.get("compatible_ssg", []))
+                return list(cms_compatible.intersection(ecommerce_compatible))
 
-        return list(cms_compatible)
+            return list(cms_compatible)
 
     def calculate_provider_cost(
         self, cms_provider: str, ecommerce_provider: str = None
@@ -237,27 +285,65 @@ class ProviderMatrix:
         self, cms_provider: str, ecommerce_provider: str = None, ssg_engine: str = "astro"
     ) -> str:
         """Determine overall complexity level for provider combination."""
-        complexity_scores = {"beginner": 1, "intermediate": 2, "advanced": 3, "enterprise": 4}
+        try:
+            compatibility = self._core_matrix.check_compatibility(
+                cms_provider=cms_provider,
+                ecommerce_provider=ecommerce_provider,
+                ssg_engine=ssg_engine
+            )
+            return compatibility.overall_complexity.value
+        except Exception:
+            # Fallback to legacy complexity calculation
+            complexity_scores = {"beginner": 1, "intermediate": 2, "advanced": 3, "enterprise": 4}
 
-        cms_info = self.get_provider_info("cms", cms_provider)
-        cms_complexity = complexity_scores.get(cms_info.get("complexity", "intermediate"), 2)
+            cms_info = self.get_provider_info("cms", cms_provider)
+            cms_complexity = complexity_scores.get(cms_info.get("complexity", "intermediate"), 2)
 
-        ssg_info = self.get_provider_info("ssg", ssg_engine)
-        ssg_complexity = complexity_scores.get(ssg_info.get("complexity", "intermediate"), 2)
+            ssg_info = self.get_provider_info("ssg", ssg_engine)
+            ssg_complexity = complexity_scores.get(ssg_info.get("complexity", "intermediate"), 2)
 
-        max_complexity = max(cms_complexity, ssg_complexity)
+            max_complexity = max(cms_complexity, ssg_complexity)
 
-        if ecommerce_provider:
-            ecommerce_info = self.get_provider_info("ecommerce", ecommerce_provider)
-            ecommerce_complexity = complexity_scores.get(ecommerce_info.get("complexity", "intermediate"), 2)
-            max_complexity = max(max_complexity, ecommerce_complexity)
+            if ecommerce_provider:
+                ecommerce_info = self.get_provider_info("ecommerce", ecommerce_provider)
+                ecommerce_complexity = complexity_scores.get(ecommerce_info.get("complexity", "intermediate"), 2)
+                max_complexity = max(max_complexity, ecommerce_complexity)
 
-        # Convert back to string
-        for level, score in complexity_scores.items():
-            if score == max_complexity:
-                return level
+            # Convert back to string
+            for level, score in complexity_scores.items():
+                if score == max_complexity:
+                    return level
 
-        return "intermediate"
+            return "intermediate"
+
+    def get_jekyll_recommendations(self) -> Dict[str, Any]:
+        """Get Jekyll-specific recommendations and constraints."""
+        return {
+            "description": "Jekyll - Technical users, GitHub Pages compatible",
+            "target_users": ["developers", "technical_professionals", "documentation_teams"],
+            "cost_range": "$0-25/month",
+            "unique_features": [
+                "GitHub Pages hosting option ($0/month)",
+                "Git-based workflow",
+                "Ruby ecosystem",
+                "Liquid templating",
+                "Technical user focused"
+            ],
+            "best_cms_partners": ["decap", "tina"],
+            "limited_ecommerce": ["snipcart", "foxy"],
+            "integration_mode": "direct",
+            "hosting_options": ["aws", "github_pages", "hybrid"],
+            "complexity": "beginner",
+            "setup_cost_range": "$360-720",
+            "monthly_cost_range": "$0-25",
+            "github_pages_compatible": True,
+            "limitations": [
+                "Primarily content-focused",
+                "Limited e-commerce integration",
+                "Requires technical skills",
+                "Git workflow required"
+            ]
+        }
 
     def list_all_providers(self) -> Dict[str, List[str]]:
         """Get all available providers by type."""
@@ -271,6 +357,7 @@ class ProviderMatrix:
         """Get recommended provider combinations based on criteria."""
         recommendations = []
 
+        # Simplified recommendations using core matrix where possible
         for cms in self.cms_providers:
             for ssg in self.ssg_engines:
                 if self.is_combination_compatible(cms, None, ssg):
@@ -282,7 +369,6 @@ class ProviderMatrix:
                         "complexity": self.get_complexity_level(cms, None, ssg),
                     }
 
-                    # Apply filters
                     if budget and combo["cost"]["total_fixed"] > budget:
                         continue
                     if complexity and combo["complexity"] != complexity:
@@ -301,7 +387,6 @@ class ProviderMatrix:
                             "complexity": self.get_complexity_level(cms, ecommerce, ssg),
                         }
 
-                        # Apply filters
                         if budget and combo["cost"]["total_fixed"] > budget:
                             continue
                         if complexity and combo["complexity"] != complexity:

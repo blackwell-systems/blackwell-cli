@@ -18,7 +18,7 @@ from typing import Optional, List
 from blackwell.core.config_manager import ConfigManager
 from blackwell.core.client_manager import ClientManager
 
-app = typer.Typer(help="Manage and apply client templates")
+app = typer.Typer(help="Manage and apply client templates", no_args_is_help=True)
 console = Console()
 
 

@@ -17,7 +17,7 @@ from typing import Optional
 
 from blackwell.core.config_manager import ConfigManager
 
-app = typer.Typer(help="Manage CLI configuration and settings")
+app = typer.Typer(help="Manage CLI configuration and settings", no_args_is_help=True)
 console = Console()
 
 

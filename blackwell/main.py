@@ -17,12 +17,14 @@ from typing import Optional
 from blackwell.commands import (
     init,
     create,
+    delete,
     deploy,
     cost,
     migrate,
     list as list_cmd,
     config,
     templates,
+    platform,
 )
 
 # Import core components
@@ -155,6 +157,13 @@ app.add_typer(
 )
 
 app.add_typer(
+    delete.app,
+    name="delete",
+    help="Delete clients, templates, and configurations",
+    rich_help_panel="Deletion Commands",
+)
+
+app.add_typer(
     deploy.app,
     name="deploy",
     help="Deploy, update, and destroy infrastructure",
@@ -194,6 +203,13 @@ app.add_typer(
     name="templates",
     help="Manage and apply client templates",
     rich_help_panel="Template Management",
+)
+
+app.add_typer(
+    platform.app,
+    name="platform",
+    help="Manage platform-infrastructure integration",
+    rich_help_panel="Platform Integration",
 )
 
 

@@ -3,7 +3,7 @@
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import typer
 from rich.console import Console
@@ -13,7 +13,7 @@ from rich.prompt import Confirm
 
 from blackwell.core.config_manager import ConfigManager
 
-app = typer.Typer(help="Deploy, update, and destroy infrastructure")
+app = typer.Typer(help="Deploy, update, and destroy infrastructure", no_args_is_help=True)
 console = Console()
 
 
@@ -351,26 +351,374 @@ def shared(
         os.chdir(original_cwd)
 
 
+def _resolve_destroy_target(target: str, config) -> Tuple[Optional[str], bool]:
+    """
+    Resolve a user-friendly target name to actual stack name.
+
+    Returns:
+        tuple: (stack_name, is_shared) or (None, False) if not found
+    """
+    if target == "shared":
+        return "WebServices-SharedInfra", True
+
+    # Try to find as client name
+    try:
+        from blackwell.core.client_manager import ClientManager
+        client_manager = ClientManager(config)
+        client = client_manager.get_client(target)
+        if client:
+            # Return the client's stack name
+            return getattr(client, 'stack_name', f"{target.title()}-Prod-Stack"), False
+    except Exception:
+        pass
+
+    return None, False
+
+
 @app.command()
-def status():
+def status(
+    account: Optional[str] = typer.Option(None, "--account", help="AWS account ID"),
+    region: Optional[str] = typer.Option(None, "--region", help="AWS region"),
+    profile: Optional[str] = typer.Option(None, "--profile", help="AWS profile to use"),
+):
     """Check status of deployed infrastructure."""
-    console.print("Checking infrastructure status...")
-    console.print("[yellow]This command is under development[/yellow]")
+    console.print(Panel.fit(
+        "[bold blue]Infrastructure Status Check[/bold blue]\n\n"
+        "Checking deployment status of shared and client infrastructure",
+        border_style="blue"
+    ))
+
+    try:
+        config = get_config_manager()
+
+        # Use provided parameters with fallback to config
+        aws_account = account or config.config.aws.account_id
+        aws_region = region or config.config.aws.region
+        aws_profile = profile or config.config.aws.profile
+
+        console.print(f"[dim]Using AWS profile: {aws_profile}, region: {aws_region}, account: {aws_account}[/dim]\n")
+
+        # Check shared infrastructure status
+        shared_status = _check_shared_infrastructure_status(aws_profile, aws_region)
+
+        # Display shared infrastructure status
+        _display_shared_status(shared_status)
+
+        # Check client infrastructure status
+        from blackwell.core.client_manager import ClientManager
+        client_manager = ClientManager(config)
+        client_summary = client_manager.get_client_summary()
+
+        # Display client status summary
+        _display_client_status_summary(client_summary)
+
+    except Exception as e:
+        console.print(f"[red]Error checking infrastructure status: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()
 def destroy(
-    stack_name: str = typer.Argument(..., help="Stack name to destroy"),
-    force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
+    target: str = typer.Argument(..., help="What to destroy: 'shared' or client name"),
+    account: Optional[str] = typer.Option(None, "--account", help="AWS account ID"),
+    region: Optional[str] = typer.Option(None, "--region", help="AWS region"),
+    profile: Optional[str] = typer.Option(None, "--profile", help="AWS profile to use"),
+    force: bool = typer.Option(False, "--force", help="Skip all confirmation prompts"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be destroyed without destroying"),
 ):
-    """Destroy deployed infrastructure."""
-    if not force:
-        if not Confirm.ask(f"[red]Are you sure you want to destroy {stack_name}?[/red]"):
-            console.print("Cancelled.")
-            raise typer.Exit()
+    """
+    Destroy deployed infrastructure.
 
-    console.print(f"Destroying {stack_name}...")
-    console.print("[yellow]This command is under development[/yellow]")
+    ⚠️  DANGER: This permanently deletes AWS resources and data.
+
+    Examples:
+    • blackwell deploy destroy shared - Destroy shared infrastructure
+    • blackwell deploy destroy my-client - Destroy specific client infrastructure
+
+    Use --dry-run first to see what will be destroyed.
+    """
+    try:
+        # Get configuration
+        config = get_config_manager()
+        aws_account = account or config.config.aws.account_id
+        aws_region = region or config.config.aws.region
+        aws_profile = profile or config.config.aws.profile
+
+        # Resolve the target to actual stack name
+        stack_name, is_shared = _resolve_destroy_target(target, config)
+        if not stack_name:
+            console.print(f"[red]Target '{target}' not found.[/red]")
+            if target != "shared":
+                console.print("\n[dim]Available clients:[/dim]")
+                from blackwell.core.client_manager import ClientManager
+                client_manager = ClientManager(config)
+                clients = client_manager.list_clients()
+                for client in clients:
+                    console.print(f"  • {client.name}")
+                console.print(f"\n[dim]Or use 'shared' to destroy shared infrastructure[/dim]")
+            raise typer.Exit(1)
+
+        console.print(Panel.fit(
+            f"[bold red]{'DRY RUN - ' if dry_run else ''}Infrastructure Destruction: {target}[/bold red]\n\n"
+            f"[dim]Actual stack: {stack_name}[/dim]\n\n"
+            f"{'[yellow]This is a dry run - no resources will be destroyed[/yellow]' if dry_run else '[red]⚠️  WARNING: This will permanently delete AWS resources![/red]'}\n\n"
+            "This action will destroy:\n"
+            "• All AWS resources in the stack\n"
+            "• All data stored in those resources\n"
+            "• All configurations and settings\n\n"
+            f"{'Preview what would be destroyed' if dry_run else 'This action cannot be undone'}",
+            border_style="red" if not dry_run else "yellow"
+        ))
+
+        console.print(f"[dim]Using AWS profile: {aws_profile}, region: {aws_region}, account: {aws_account}[/dim]\n")
+
+        # Check prerequisites
+        if not check_cdk_prerequisites(profile=aws_profile):
+            raise typer.Exit(1)
+
+        # Check if stack exists
+        console.print("[blue]Checking stack status...[/blue]")
+        stack_status = _check_stack_status(stack_name, aws_profile, aws_region)
+
+        if not stack_status['exists']:
+            if stack_status['status'] == 'NOT_DEPLOYED':
+                console.print(f"[yellow]Stack '{stack_name}' does not exist or is not deployed.[/yellow]")
+                console.print("[dim]Nothing to destroy.[/dim]")
+                return
+            else:
+                console.print(f"[red]Error checking stack status: {stack_status.get('error', 'Unknown error')}[/red]")
+                raise typer.Exit(1)
+
+        # Display what will be destroyed
+        console.print(f"[yellow]Stack found:[/yellow] {stack_name}")
+        console.print(f"[yellow]Status:[/yellow] {stack_status['status']}")
+        if stack_status.get('creation_time'):
+            console.print(f"[yellow]Created:[/yellow] {stack_status['creation_time'].strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+        # Find platform-infrastructure path
+        platform_path = find_platform_infrastructure_path()
+        if not platform_path:
+            console.print("[red]Could not find platform-infrastructure project.[/red]")
+            console.print("\n[dim]Configure the path with:[/dim]")
+            console.print("blackwell config set platform_infrastructure.path /path/to/platform-infrastructure")
+            raise typer.Exit(1)
+
+        console.print(f"[green]Found platform-infrastructure at:[/green] {platform_path}")
+
+        # Enhanced safety checks for shared infrastructure
+        if is_shared and not dry_run:
+            console.print("\n[red]⚠️  CRITICAL WARNING: You are about to destroy SHARED INFRASTRUCTURE![/red]")
+            console.print("[red]This will affect ALL client deployments and may cause:[/red]")
+            console.print("• All client sites to become unavailable")
+            console.print("• Loss of shared DNS and routing configuration")
+            console.print("• Loss of monitoring and operational dashboards")
+            console.print("• Potential data loss in shared storage systems")
+
+            if not force:
+                console.print(f"\n[bold red]Type 'shared' to confirm destruction of shared infrastructure:[/bold red]")
+                confirmation = typer.prompt("Confirmation")
+                if confirmation != "shared":
+                    console.print("[yellow]Confirmation mismatch. Cancelled.[/yellow]")
+                    raise typer.Exit()
+
+                if not Confirm.ask(f"[red]Are you absolutely sure you want to destroy shared infrastructure?[/red]"):
+                    console.print("Cancelled.")
+                    raise typer.Exit()
+
+        elif not dry_run and not force:
+            display_name = "shared infrastructure" if is_shared else f"client '{target}'"
+            if not Confirm.ask(f"[red]Are you sure you want to destroy {display_name}?[/red]"):
+                console.print("Cancelled.")
+                raise typer.Exit()
+
+        # Execute destruction
+        success = _execute_stack_destruction(
+            stack_name=stack_name,
+            platform_path=platform_path,
+            aws_account=aws_account,
+            aws_region=aws_region,
+            aws_profile=aws_profile,
+            dry_run=dry_run
+        )
+
+        if success:
+            if dry_run:
+                display_name = "shared infrastructure" if is_shared else f"client '{target}'"
+                console.print(f"\n[green]✅ Dry-run completed for {display_name}[/green]")
+                console.print("[yellow]The above shows what would be destroyed.[/yellow]")
+                console.print(f"[dim]To actually destroy, run:[/dim] blackwell deploy destroy {target} --force")
+            else:
+                if is_shared:
+                    console.print(f"\n[green]✅ Shared infrastructure destroyed successfully![/green]")
+                    console.print("\n[yellow]⚠️  All client deployments may be affected.[/yellow]")
+                    console.print("Redeploy shared infrastructure before deploying clients:")
+                    console.print("   blackwell deploy shared --approve")
+                else:
+                    console.print(f"\n[green]✅ Client '{target}' infrastructure destroyed successfully![/green]")
+        else:
+            display_name = "shared infrastructure" if is_shared else f"client '{target}'"
+            console.print(f"\n[red]❌ {'Dry-run' if dry_run else 'Destruction'} failed for {display_name}[/red]")
+            raise typer.Exit(1)
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Destruction cancelled by user[/yellow]")
+        raise typer.Exit(130)
+    except Exception as e:
+        console.print(f"\n[red]Destruction failed: {e}[/red]")
+        raise typer.Exit(1)
+
+
+def _check_shared_infrastructure_status(aws_profile: str, aws_region: str) -> dict:
+    """Check the status of the shared infrastructure stack."""
+    try:
+        import boto3
+        from botocore.exceptions import NoCredentialsError, ClientError
+
+        # Create CloudFormation client with the specified profile
+        session = boto3.Session(profile_name=aws_profile, region_name=aws_region)
+        cloudformation = session.client('cloudformation')
+
+        stack_name = "WebServices-SharedInfra"
+
+        try:
+            # Get stack status
+            response = cloudformation.describe_stacks(StackName=stack_name)
+            stack = response['Stacks'][0]
+
+            return {
+                'exists': True,
+                'stack_name': stack['StackName'],
+                'status': stack['StackStatus'],
+                'creation_time': stack.get('CreationTime'),
+                'last_updated_time': stack.get('LastUpdatedTime'),
+                'description': stack.get('Description', ''),
+                'drift_status': None  # We'll check this separately if needed
+            }
+
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ValidationError':
+                # Stack doesn't exist
+                return {
+                    'exists': False,
+                    'stack_name': stack_name,
+                    'status': 'NOT_DEPLOYED',
+                    'error': None
+                }
+            else:
+                raise e
+
+    except (NoCredentialsError, ClientError) as e:
+        return {
+            'exists': False,
+            'stack_name': 'WebServices-SharedInfra',
+            'status': 'ERROR',
+            'error': str(e)
+        }
+    except ImportError:
+        return {
+            'exists': False,
+            'stack_name': 'WebServices-SharedInfra',
+            'status': 'ERROR',
+            'error': 'boto3 not available - please install with: pip install boto3'
+        }
+
+
+def _display_shared_status(status_info: dict) -> None:
+    """Display shared infrastructure status in a formatted way."""
+    from rich.table import Table
+
+    # Create status table
+    table = Table(title="Shared Infrastructure Status", show_header=True, header_style="bold magenta")
+    table.add_column("Property", style="cyan", no_wrap=True)
+    table.add_column("Value", style="green")
+
+    table.add_row("Stack Name", status_info['stack_name'])
+
+    # Color-code the status
+    status = status_info['status']
+    if status in ['CREATE_COMPLETE', 'UPDATE_COMPLETE']:
+        status_display = f"[green]✅ {status}[/green]"
+    elif status in ['CREATE_IN_PROGRESS', 'UPDATE_IN_PROGRESS']:
+        status_display = f"[yellow]🔄 {status}[/yellow]"
+    elif status == 'NOT_DEPLOYED':
+        status_display = f"[yellow]❌ Not Deployed[/yellow]"
+    elif 'FAILED' in status or status == 'ERROR':
+        status_display = f"[red]❌ {status}[/red]"
+    else:
+        status_display = f"[dim]{status}[/dim]"
+
+    table.add_row("Status", status_display)
+
+    if status_info['exists']:
+        if status_info.get('creation_time'):
+            table.add_row("Created", status_info['creation_time'].strftime('%Y-%m-%d %H:%M:%S UTC'))
+        if status_info.get('last_updated_time'):
+            table.add_row("Last Updated", status_info['last_updated_time'].strftime('%Y-%m-%d %H:%M:%S UTC'))
+        if status_info.get('description'):
+            table.add_row("Description", status_info['description'])
+
+    if status_info.get('error'):
+        table.add_row("Error", f"[red]{status_info['error']}[/red]")
+
+    console.print(table)
+
+    # Show deployment guidance
+    if not status_info['exists'] and status_info['status'] == 'NOT_DEPLOYED':
+        console.print("\n[yellow]💡 To deploy shared infrastructure:[/yellow]")
+        console.print("   blackwell deploy shared --approve")
+    elif status_info['status'] == 'ERROR':
+        console.print("\n[red]⚠ There was an error checking the shared infrastructure status.[/red]")
+        console.print("   Please check your AWS credentials and try again.")
+
+
+def _display_client_status_summary(client_summary: dict) -> None:
+    """Display client infrastructure status summary."""
+    from rich.table import Table
+
+    if client_summary['total'] == 0:
+        console.print("\n[dim]No clients configured yet.[/dim]")
+        console.print("[yellow]💡 Create your first client with:[/yellow] blackwell create client")
+        return
+
+    # Create client summary table
+    table = Table(title="Client Infrastructure Summary", show_header=True, header_style="bold magenta")
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value", style="green")
+
+    table.add_row("Total Clients", str(client_summary['total']))
+    table.add_row("Deployed Clients", str(client_summary['deployed']))
+
+    # Status breakdown
+    if client_summary.get('status_breakdown'):
+        status_text = []
+        for status, count in client_summary['status_breakdown'].items():
+            if status == 'deployed':
+                status_text.append(f"[green]{count} {status}[/green]")
+            elif status == 'error':
+                status_text.append(f"[red]{count} {status}[/red]")
+            elif status in ['deploying', 'updating']:
+                status_text.append(f"[yellow]{count} {status}[/yellow]")
+            else:
+                status_text.append(f"[dim]{count} {status}[/dim]")
+        table.add_row("Status Breakdown", " | ".join(status_text))
+
+    # Cost information
+    if client_summary.get('total_estimated_cost', 0) > 0:
+        table.add_row("Est. Monthly Cost", f"${client_summary['total_estimated_cost']:.2f}")
+    if client_summary.get('total_actual_cost', 0) > 0:
+        table.add_row("Actual Monthly Cost", f"${client_summary['total_actual_cost']:.2f}")
+
+    console.print("\n")
+    console.print(table)
+
+    # Show management guidance
+    if client_summary['deployed'] > 0:
+        console.print(f"\n[green]✅ {client_summary['deployed']} client(s) successfully deployed![/green]")
+
+    if client_summary['total'] > client_summary['deployed']:
+        remaining = client_summary['total'] - client_summary['deployed']
+        console.print(f"\n[yellow]💡 {remaining} client(s) ready for deployment:[/yellow]")
+        console.print("   blackwell deploy client <name> --approve")
 
 
 def _generate_client_deployment_script(client, platform_path: Path) -> str:
@@ -584,8 +932,142 @@ def _execute_client_deployment(
 
     finally:
         os.chdir(original_cwd)
-        # Clean up temporary script
+
+
+
+
+def _check_stack_status(stack_name: str, aws_profile: str, aws_region: str) -> dict:
+    """Check the status of any CloudFormation stack."""
+    try:
+        import boto3
+        from botocore.exceptions import NoCredentialsError, ClientError
+
+        # Create CloudFormation client with the specified profile
+        session = boto3.Session(profile_name=aws_profile, region_name=aws_region)
+        cloudformation = session.client('cloudformation')
+
         try:
-            os.unlink(script_path)
-        except:
-            pass
+            # Get stack status
+            response = cloudformation.describe_stacks(StackName=stack_name)
+            stack = response['Stacks'][0]
+
+            return {
+                'exists': True,
+                'stack_name': stack['StackName'],
+                'status': stack['StackStatus'],
+                'creation_time': stack.get('CreationTime'),
+                'last_updated_time': stack.get('LastUpdatedTime'),
+                'description': stack.get('Description', ''),
+                'drift_status': None  # We'll check this separately if needed
+            }
+
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ValidationError':
+                # Stack doesn't exist
+                return {
+                    'exists': False,
+                    'stack_name': stack_name,
+                    'status': 'NOT_DEPLOYED',
+                    'error': None
+                }
+            else:
+                raise e
+
+    except (NoCredentialsError, ClientError) as e:
+        return {
+            'exists': False,
+            'stack_name': stack_name,
+            'status': 'ERROR',
+            'error': str(e)
+        }
+    except ImportError:
+        return {
+            'exists': False,
+            'stack_name': stack_name,
+            'status': 'ERROR',
+            'error': 'boto3 not available - please install with: pip install boto3'
+        }
+
+
+def _execute_stack_destruction(
+    stack_name: str,
+    platform_path: Path,
+    aws_account: str,
+    aws_region: str,
+    aws_profile: str,
+    dry_run: bool = False
+) -> bool:
+    """Execute stack destruction using CDK destroy command."""
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(platform_path)
+
+        # Set up environment
+        env = {k: v for k, v in os.environ.items() if not k.startswith("AWS_")}
+        env["AWS_PROFILE"] = aws_profile or "default"
+        env["AWS_DEFAULT_REGION"] = aws_region or "us-east-1"
+        env["AWS_SDK_LOAD_CONFIG"] = "1"
+
+        # Build CDK command
+        if dry_run:
+            # For dry run, use diff to show what would be destroyed
+            cdk_cmd = [
+                "cdk", "diff", stack_name,
+                "--profile", aws_profile or "default",
+                "-c", f"account={aws_account}",
+                "-c", f"region={aws_region or 'us-east-1'}"
+            ]
+            console.print("[blue]Running destruction preview (diff)...[/blue]")
+        else:
+            # For actual destruction, use destroy
+            cdk_cmd = [
+                "cdk", "destroy", stack_name,
+                "--profile", aws_profile or "default",
+                "-c", f"account={aws_account}",
+                "-c", f"region={aws_region or 'us-east-1'}",
+                "--force"  # Skip CDK confirmation since we handle our own
+            ]
+            console.print(f"[red]Destroying stack '{stack_name}'...[/red]")
+
+        console.print(f"[dim]Executing: {' '.join(cdk_cmd)}[/dim]")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=False if dry_run else True
+        ) as progress:
+            if not dry_run:
+                task = progress.add_task("Destroying infrastructure...", total=None)
+
+            process = subprocess.Popen(
+                cdk_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=env,
+                bufsize=1,
+                universal_newlines=True
+            )
+
+            for line in iter(process.stdout.readline, ''):
+                if line.strip():
+                    if dry_run:
+                        console.print(line.rstrip())
+                    else:
+                        if "DELETE_COMPLETE" in line:
+                            console.print(f"[green]{line.strip()}[/green]")
+                        elif "DELETE_IN_PROGRESS" in line:
+                            console.print(f"[yellow]{line.strip()}[/yellow]")
+                        elif "FAILED" in line or "ERROR" in line:
+                            console.print(f"[red]{line.strip()}[/red]")
+                        else:
+                            console.print(f"[dim]{line.strip()}[/dim]")
+
+            return_code = process.wait()
+            return return_code == 0
+
+    finally:
+        os.chdir(original_cwd)
+
+

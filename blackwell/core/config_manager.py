@@ -17,6 +17,9 @@ from rich.console import Console
 import sys
 
 from blackwell import CLI_CONFIG_DIR, CLI_CONFIG_FILE
+from .provider_matrix import ProviderMatrix
+from .dynamic_provider_matrix import DynamicProviderMatrix
+from .platform_integration import is_platform_available, get_integration_status
 
 console = Console()
 
@@ -59,6 +62,15 @@ class PlatformConfig(BaseModel):
     )
     required_version: str = Field(
         default="1.0.0", description="Required platform-infrastructure version"
+    )
+    force_static_mode: bool = Field(
+        default=False, description="Force static provider matrix (disable platform integration)"
+    )
+    enable_live_metadata: bool = Field(
+        default=True, description="Enable live metadata from platform-infrastructure"
+    )
+    cache_duration: int = Field(
+        default=300, description="Cache duration for platform metadata in seconds"
     )
 
 
@@ -198,6 +210,8 @@ class ConfigManager:
             "BLACKWELL_AWS_PROFILE": ("aws", "profile"),
             "BLACKWELL_AWS_REGION": ("aws", "region"),
             "BLACKWELL_PLATFORM_PATH": ("platform_infrastructure", "path"),
+            "BLACKWELL_FORCE_STATIC": ("platform_infrastructure", "force_static_mode"),
+            "BLACKWELL_ENABLE_LIVE_METADATA": ("platform_infrastructure", "enable_live_metadata"),
             "BLACKWELL_VERBOSE": ("verbose",),
             "AWS_PROFILE": ("aws", "profile"),  # Standard AWS env var
             "AWS_DEFAULT_REGION": ("aws", "region"),  # Standard AWS env var
@@ -217,9 +231,10 @@ class ConfigManager:
             current = current.setdefault(key, {})
 
         # Convert value to appropriate type
-        if path[-1] in ["verbose", "auto_confirm", "check_updates", "telemetry"]:
+        if path[-1] in ["verbose", "auto_confirm", "check_updates", "telemetry",
+                        "force_static_mode", "enable_live_metadata", "auto_discover"]:
             value = value.lower() in ("true", "1", "yes", "on")
-        elif path[-1] in ["parallel_deployments", "deployment_timeout"]:
+        elif path[-1] in ["parallel_deployments", "deployment_timeout", "cache_duration"]:
             value = int(value)
         elif path[-1] == "cost_alert_threshold":
             value = float(value)
@@ -435,3 +450,191 @@ class ConfigManager:
 
                 # Add value row
                 table.add_row(f"  {key}", str(value), source)
+
+    # Platform Integration Methods
+    def get_provider_matrix(self):
+        """
+        Get provider matrix with platform integration support.
+
+        Returns DynamicProviderMatrix when platform available and enabled,
+        falls back to static ProviderMatrix otherwise.
+        """
+        # Check if platform integration is forced off
+        if self.config.platform_infrastructure.force_static_mode:
+            if self.verbose:
+                console.print("[dim]Using static provider matrix (forced)[/dim]")
+            return ProviderMatrix()
+
+        # Check environment variable override
+        if os.getenv("BLACKWELL_FORCE_STATIC", "").lower() in ("true", "1", "yes"):
+            if self.verbose:
+                console.print("[dim]Using static provider matrix (env override)[/dim]")
+            return ProviderMatrix()
+
+        # Check if platform integration is enabled
+        if not self.config.platform_infrastructure.enable_live_metadata:
+            if self.verbose:
+                console.print("[dim]Using static provider matrix (disabled)[/dim]")
+            return ProviderMatrix()
+
+        # Try to use dynamic provider matrix
+        if self.is_platform_available() and is_platform_available():
+            try:
+                if self.verbose:
+                    console.print("[dim]Using dynamic provider matrix with platform data[/dim]")
+                return DynamicProviderMatrix()
+            except Exception as e:
+                if self.verbose:
+                    console.print(f"[yellow]Dynamic provider matrix failed: {e}[/yellow]")
+                    console.print("[dim]Falling back to static provider matrix[/dim]")
+                return ProviderMatrix()
+        else:
+            if self.verbose:
+                console.print("[dim]Using static provider matrix (platform unavailable)[/dim]")
+            return ProviderMatrix()
+
+    def get_platform_integration_status(self) -> Dict[str, Any]:
+        """Get detailed platform integration status."""
+        base_status = {
+            "config_path_available": self.get_platform_path() is not None,
+            "config_path_valid": self.is_platform_available(),
+            "force_static_mode": self.config.platform_infrastructure.force_static_mode,
+            "live_metadata_enabled": self.config.platform_infrastructure.enable_live_metadata,
+            "env_override": os.getenv("BLACKWELL_FORCE_STATIC", "").lower() in ("true", "1", "yes"),
+        }
+
+        # Get integration status from platform_integration module
+        try:
+            platform_status = get_integration_status()
+            base_status.update(platform_status)
+        except Exception as e:
+            base_status["integration_error"] = str(e)
+
+        return base_status
+
+    def refresh_platform_metadata(self) -> bool:
+        """
+        Refresh platform metadata cache.
+
+        Returns:
+            True if refresh successful, False otherwise
+        """
+        if self.config.platform_infrastructure.force_static_mode:
+            console.print("[yellow]Platform integration is disabled (force_static_mode=true)[/yellow]")
+            return False
+
+        if not self.is_platform_available():
+            console.print("[red]Platform-infrastructure not available[/red]")
+            return False
+
+        try:
+            # Create new dynamic provider matrix to refresh data
+            matrix = DynamicProviderMatrix()
+            success = matrix.refresh_from_platform()
+
+            if success:
+                console.print("[green]Platform metadata refreshed successfully[/green]")
+                if self.verbose:
+                    status = matrix.get_platform_status()
+                    console.print(f"[dim]Data source: {status['data_source']}[/dim]")
+                    console.print(f"[dim]Metadata count: {status['platform_metadata_count']}[/dim]")
+            else:
+                console.print("[red]Failed to refresh platform metadata[/red]")
+
+            return success
+
+        except Exception as e:
+            console.print(f"[red]Error refreshing platform metadata: {e}[/red]")
+            return False
+
+    def enable_platform_integration(self) -> None:
+        """Enable platform integration."""
+        self.set("platform_infrastructure.force_static_mode", False)
+        self.set("platform_infrastructure.enable_live_metadata", True)
+        console.print("[green]Platform integration enabled[/green]")
+
+    def disable_platform_integration(self) -> None:
+        """Disable platform integration (force static mode)."""
+        self.set("platform_infrastructure.force_static_mode", True)
+        console.print("[yellow]Platform integration disabled (static mode enabled)[/yellow]")
+
+    def show_platform_status(self) -> None:
+        """Display platform integration status."""
+        from rich.table import Table
+        from rich.panel import Panel
+
+        status = self.get_platform_integration_status()
+
+        # Create status table
+        table = Table(title="Platform Integration Status", show_header=True)
+        table.add_column("Component", style="cyan", no_wrap=True)
+        table.add_column("Status", style="green")
+        table.add_column("Details", style="dim")
+
+        # Configuration status
+        table.add_row(
+            "Configuration Path",
+            "✓ Found" if status.get("config_path_available") else "✗ Not Set",
+            str(self.get_platform_path()) if self.get_platform_path() else "Use: blackwell config set platform_infrastructure.path"
+        )
+
+        table.add_row(
+            "Path Validation",
+            "✓ Valid" if status.get("config_path_valid") else "✗ Invalid",
+            "Platform project structure verified" if status.get("config_path_valid") else "Check platform-infrastructure project"
+        )
+
+        # Integration settings
+        table.add_row(
+            "Static Mode",
+            "✓ Enabled" if status.get("force_static_mode") else "✗ Disabled",
+            "Platform integration disabled" if status.get("force_static_mode") else "Platform integration allowed"
+        )
+
+        table.add_row(
+            "Live Metadata",
+            "✓ Enabled" if status.get("live_metadata_enabled") else "✗ Disabled",
+            "Dynamic provider matrix enabled" if status.get("live_metadata_enabled") else "Using static provider matrix"
+        )
+
+        # Environment overrides
+        table.add_row(
+            "Environment Override",
+            "✓ Active" if status.get("env_override") else "✗ None",
+            "BLACKWELL_FORCE_STATIC=true" if status.get("env_override") else "No environment overrides"
+        )
+
+        # Platform availability
+        platform_available = status.get("platform_available", False)
+        table.add_row(
+            "Platform Availability",
+            "✓ Available" if platform_available else "✗ Unavailable",
+            f"Import successful: {status.get('integration_mode', 'unknown')}" if platform_available else status.get("integration_error", "Cannot import platform modules")
+        )
+
+        # Show metadata info if available
+        if platform_available and status.get("metadata_count", 0) > 0:
+            table.add_row(
+                "Metadata Count",
+                f"✓ {status.get('metadata_count')} entries",
+                f"Stack types available from platform"
+            )
+
+        console.print(table)
+
+        # Show recommendations
+        recommendations = []
+        if not status.get("config_path_available"):
+            recommendations.append("Set platform path: blackwell config set platform_infrastructure.path /path/to/platform-infrastructure")
+        elif not status.get("config_path_valid"):
+            recommendations.append("Verify platform-infrastructure project structure")
+        elif not platform_available:
+            recommendations.append("Check platform-infrastructure installation and dependencies")
+        elif status.get("force_static_mode"):
+            recommendations.append("Enable platform integration: blackwell platform enable")
+        elif platform_available and not status.get("env_override"):
+            recommendations.append("Platform integration is working! Use 'blackwell platform refresh' to update metadata")
+
+        if recommendations:
+            rec_text = "\n".join(f"• {rec}" for rec in recommendations)
+            console.print(Panel(rec_text, title="💡 Recommendations", border_style="blue"))
