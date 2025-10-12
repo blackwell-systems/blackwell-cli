@@ -38,7 +38,7 @@ class ClientManifest(BaseModel):
     """Client configuration manifest - desired state."""
 
     # Schema reference
-    schema: str = Field(
+    json_schema: str = Field(
         default="https://blackwell.dev/schemas/manifest.schema.json",
         description="JSON Schema reference",
         alias="$schema"
@@ -127,7 +127,7 @@ class ClientState(BaseModel):
     """Client runtime state - observed state."""
 
     # Schema reference
-    schema: str = Field(
+    json_schema: str = Field(
         default="https://blackwell.dev/schemas/state.schema.json",
         description="JSON Schema reference",
         alias="$schema"
@@ -189,7 +189,7 @@ class ClientHistory(BaseModel):
     """Client deployment history - append-only events."""
 
     # Schema reference
-    schema: str = Field(
+    json_schema: str = Field(
         default="https://blackwell.dev/schemas/history.schema.json",
         description="JSON Schema reference",
         alias="$schema"
@@ -230,7 +230,7 @@ class RegistryIndex(BaseModel):
     """Registry index for fast client discovery."""
 
     # Schema reference
-    schema: str = Field(
+    json_schema: str = Field(
         default="https://blackwell.dev/schemas/index.schema.json",
         description="JSON Schema reference",
         alias="$schema"
@@ -443,23 +443,24 @@ class ClientManager:
             self._load_index()
 
             # Load all client data from directories
+            clients_loaded = False
             if self.clients_dir.exists():
                 for client_dir in self.clients_dir.iterdir():
                     if client_dir.is_dir():
                         client_id = client_dir.name
                         try:
                             self._load_client_files(client_id)
+                            clients_loaded = True
                         except Exception as e:
                             console.print(f"[red]Error loading client '{client_id}': {e}[/red]")
                             continue
 
-            # Check for legacy migration
-            elif self.legacy_clients_file.exists():
+            # Check for legacy migration (even if registry directory exists but is empty)
+            if not clients_loaded and self.legacy_clients_file.exists():
                 console.print("[yellow]Migrating from legacy clients.yml format...[/yellow]")
                 self._migrate_from_legacy()
-
-            else:
-                # Initialize empty registry
+            elif not clients_loaded:
+                # Initialize empty registry only if no clients were loaded and no migration occurred
                 self._index = RegistryIndex()
                 self._save_index()
 

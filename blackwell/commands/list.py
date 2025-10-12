@@ -46,8 +46,8 @@ def clients(
                 console.print(f"[red]Client '{client_name}' not found.[/red]")
                 console.print("\n[dim]Available clients:[/dim]")
                 clients_list = client_manager.list_clients()
-                for c in clients_list:
-                    console.print(f"  • {c.name}")
+                for manifest, state in clients_list:
+                    console.print(f"  • {manifest.client_id}")
                 console.print(f"\n[dim]Create client with:[/dim] blackwell create client {client_name}")
                 raise typer.Exit(1)
 
@@ -74,18 +74,18 @@ def clients(
                 table.add_column("Providers", style="blue")
                 table.add_column("Last Deploy", style="magenta")
 
-            for client in clients_list:
+            for manifest, state in clients_list:
                 # Build providers list
-                providers_list = [client.cms_provider]
-                if client.ecommerce_provider:
-                    providers_list.append(client.ecommerce_provider)
+                providers_list = [manifest.cms_provider]
+                if manifest.ecommerce_provider:
+                    providers_list.append(manifest.ecommerce_provider)
 
                 # Format last deployment time
                 last_deploy_str = "Never"
-                if client.last_deployed_at:
-                    last_deploy_str = client.last_deployed_at.strftime("%Y-%m-%d %H:%M")
+                if state.last_deployed_at:
+                    last_deploy_str = state.last_deployed_at.strftime("%Y-%m-%d %H:%M")
 
-                row = [client.name, client.get_service_type(), client.status]
+                row = [manifest.client_id, manifest.get_service_type(), state.status]
 
                 if verbose:
                     providers = ", ".join(providers_list)
