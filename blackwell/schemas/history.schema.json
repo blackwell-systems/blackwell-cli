@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blackwell.dev/schemas/history.schema.json",
+  "title": "Client History",
+  "description": "Client deployment history - append-only events",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://blackwell.dev/schemas/history.schema.json"
+    },
+    "schema_version": {
+      "type": "string",
+      "default": "1.1",
+      "description": "History schema version"
+    },
+    "events": {
+      "type": "array",
+      "description": "Deployment history events",
+      "items": {
+        "$ref": "#/$defs/ClientHistoryEvent"
+      },
+      "default": []
+    }
+  },
+  "required": ["events"],
+  "additionalProperties": false,
+  "$defs": {
+    "ClientHistoryEvent": {
+      "type": "object",
+      "title": "Client History Event",
+      "description": "Single deployment history event",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Event timestamp"
+        },
+        "action": {
+          "type": "string",
+          "description": "Action performed",
+          "enum": ["create", "deploy", "update", "destroy", "status_change", "cost_update", "drift_check"]
+        },
+        "status": {
+          "type": "string",
+          "description": "Result status",
+          "enum": ["success", "error", "warning", "in_progress", "draft", "ready", "deploying", "deployed", "updating", "destroying"]
+        },
+        "details": {
+          "type": "object",
+          "description": "Additional event details",
+          "additionalProperties": true,
+          "default": {}
+        }
+      },
+      "required": ["timestamp", "action", "status"],
+      "additionalProperties": false
+    }
+  }
+}

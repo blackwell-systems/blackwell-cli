@@ -23,7 +23,8 @@ VERSION_INFO = {
 CLI_NAME = "blackwell"
 CLI_CONFIG_DIR = "~/.blackwell"
 CLI_CONFIG_FILE = "config.yml"
-CLI_CLIENTS_FILE = "clients.yml"
+# Legacy YAML file - deprecated in favor of registry/ directory structure
+# CLI_CLIENTS_FILE = "clients.yml"  # REMOVED - use registry/ directory instead
 
 # Platform Integration
 PLATFORM_INFRASTRUCTURE_REQUIRED_VERSION = "1.0.0"
@@ -44,7 +45,7 @@ __all__ = [
     "CLI_NAME",
     "CLI_CONFIG_DIR",
     "CLI_CONFIG_FILE",
-    "CLI_CLIENTS_FILE",
+    # "CLI_CLIENTS_FILE",  # REMOVED - deprecated in favor of registry/ directory
     "ConfigManager",
     "ClientManager",
     "CostCalculator",

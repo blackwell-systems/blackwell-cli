@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blackwell.dev/schemas/index.schema.json",
+  "title": "Registry Index",
+  "description": "Registry index for fast client discovery",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://blackwell.dev/schemas/index.schema.json"
+    },
+    "version": {
+      "type": "string",
+      "default": "2.0",
+      "description": "Registry version"
+    },
+    "last_updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last registry update timestamp"
+    },
+    "clients": {
+      "type": "array",
+      "description": "Client index entries",
+      "items": {
+        "$ref": "#/$defs/ClientIndexEntry"
+      },
+      "default": []
+    }
+  },
+  "required": ["version", "last_updated", "clients"],
+  "additionalProperties": false,
+  "$defs": {
+    "ClientIndexEntry": {
+      "type": "object",
+      "title": "Client Index Entry",
+      "description": "Brief client information for fast lookup",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Client identifier",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "domain": {
+          "type": "string",
+          "description": "Primary domain",
+          "format": "hostname"
+        },
+        "status": {
+          "type": "string",
+          "description": "Current status",
+          "enum": ["draft", "ready", "deploying", "deployed", "error", "updating", "destroying"]
+        },
+        "region": {
+          "type": "string",
+          "description": "AWS region",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "tier": {
+          "type": "string",
+          "description": "Service tier",
+          "enum": ["tier1", "tier2", "tier3"]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["id", "domain", "status", "region", "tier"],
+      "additionalProperties": false
+    }
+  }
+}

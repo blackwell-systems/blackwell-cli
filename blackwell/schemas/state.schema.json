@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blackwell.dev/schemas/state.schema.json",
+  "title": "Client State",
+  "description": "Client runtime state - observed state",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://blackwell.dev/schemas/state.schema.json"
+    },
+    "schema_version": {
+      "type": "string",
+      "default": "1.1",
+      "description": "State schema version"
+    },
+    "status": {
+      "type": "string",
+      "description": "Current status",
+      "enum": ["draft", "ready", "deploying", "deployed", "error", "updating", "destroying"],
+      "default": "draft"
+    },
+    "stack_name": {
+      "type": ["string", "null"],
+      "description": "Generated CDK stack name"
+    },
+    "last_deployed_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Last deployment timestamp"
+    },
+    "estimated_monthly_cost": {
+      "type": ["number", "null"],
+      "description": "Estimated monthly cost in USD",
+      "minimum": 0
+    },
+    "actual_monthly_cost": {
+      "type": ["number", "null"],
+      "description": "Actual monthly cost in USD",
+      "minimum": 0
+    },
+    "aws_stack_id": {
+      "type": ["string", "null"],
+      "description": "AWS CloudFormation stack ID",
+      "pattern": "^arn:aws:cloudformation:[^:]+:[^:]+:stack/[^/]+/[a-f0-9-]+$"
+    },
+    "drift_detected": {
+      "type": "boolean",
+      "description": "Whether configuration drift was detected",
+      "default": false
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last state update timestamp"
+    }
+  },
+  "required": ["status", "updated_at"],
+  "additionalProperties": false
+}

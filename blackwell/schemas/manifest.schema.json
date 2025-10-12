@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blackwell.dev/schemas/manifest.schema.json",
+  "title": "Client Manifest",
+  "description": "Client configuration manifest - desired state",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://blackwell.dev/schemas/manifest.schema.json"
+    },
+    "schema_version": {
+      "type": "string",
+      "default": "1.1",
+      "description": "Manifest schema version"
+    },
+    "client_id": {
+      "type": "string",
+      "description": "Client identifier (kebab-case)",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "company_name": {
+      "type": "string",
+      "description": "Company display name",
+      "minLength": 1
+    },
+    "domain": {
+      "type": "string",
+      "description": "Primary domain",
+      "format": "hostname"
+    },
+    "contact_email": {
+      "type": "string",
+      "description": "Primary contact email",
+      "format": "email"
+    },
+    "service_tier": {
+      "type": "string",
+      "description": "Service tier",
+      "enum": ["tier1", "tier2", "tier3"],
+      "default": "tier1"
+    },
+    "management_model": {
+      "type": "string",
+      "description": "Management model",
+      "enum": ["self_managed", "managed", "enterprise"],
+      "default": "self_managed"
+    },
+    "cms_provider": {
+      "type": "string",
+      "description": "CMS provider",
+      "enum": ["decap", "tina", "sanity", "contentful", "strapi"]
+    },
+    "ecommerce_provider": {
+      "type": ["string", "null"],
+      "description": "E-commerce provider (optional)",
+      "enum": ["snipcart", "stripe", "shopify", "woocommerce", null]
+    },
+    "ssg_engine": {
+      "type": "string",
+      "description": "SSG engine",
+      "enum": ["astro", "hugo", "gatsby", "nextjs", "nuxt", "jekyll"]
+    },
+    "integration_mode": {
+      "type": "string",
+      "description": "Integration mode",
+      "enum": ["event_driven", "direct", "hybrid"],
+      "default": "event_driven"
+    },
+    "cms_settings": {
+      "type": "object",
+      "description": "CMS provider settings",
+      "default": {}
+    },
+    "ecommerce_settings": {
+      "type": "object",
+      "description": "E-commerce provider settings",
+      "default": {}
+    },
+    "aws_region": {
+      "type": "string",
+      "description": "AWS deployment region",
+      "default": "us-east-1",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Client notes",
+      "default": ""
+    },
+    "tags": {
+      "type": "object",
+      "description": "Custom tags",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {}
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Creation timestamp"
+    }
+  },
+  "required": ["client_id", "company_name", "domain", "contact_email", "cms_provider", "ssg_engine"],
+  "additionalProperties": false
+}
