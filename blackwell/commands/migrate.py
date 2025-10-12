@@ -20,7 +20,7 @@ from pathlib import Path
 from blackwell.core.config_manager import ConfigManager
 from blackwell.core.client_manager import ClientManager
 from blackwell.core.provider_matrix import ProviderMatrix
-from blackwell.core.cost_calculator import CostCalculator
+# Cost calculator removed - platform focuses on capabilities, not pricing
 
 app = typer.Typer(help="🔄 Migrate between providers and modes", no_args_is_help=True)
 console = Console()
@@ -43,7 +43,6 @@ def cms(
         config_manager = ConfigManager()
         client_manager = ClientManager(config_manager)
         provider_matrix = ProviderMatrix()
-        cost_calculator = CostCalculator()
 
         # Get current client configuration
         client = client_manager.get_client(client_name)
@@ -71,19 +70,13 @@ def cms(
             client, current_cms, target_cms, provider_matrix
         )
 
-        # Calculate cost impact
-        old_cost = cost_calculator.calculate_client_cost(client)
-
-        # Create temporary client config with new CMS
+        # Analyze migration impact
         temp_client_config = client.model_copy()
         temp_client_config.cms_provider = target_cms
-        new_cost = cost_calculator.calculate_client_cost(temp_client_config)
-
-        cost_change = new_cost.total_estimated_cost - old_cost.total_estimated_cost
 
         # Display migration preview
         _display_cms_migration_preview(
-            client, current_cms, target_cms, cost_change, compatibility_issues
+            client, current_cms, target_cms, compatibility_issues
         )
 
         if preview:
@@ -130,7 +123,6 @@ def ecommerce(
         config_manager = ConfigManager()
         client_manager = ClientManager(config_manager)
         provider_matrix = ProviderMatrix()
-        cost_calculator = CostCalculator()
 
         # Get current client configuration
         client = client_manager.get_client(client_name)
@@ -152,18 +144,13 @@ def ecommerce(
 
         console.print(f"\n[bold cyan]🛒 E-commerce Migration: {current_ecommerce or 'None'} → {target_ecommerce}[/bold cyan]")
 
-        # Calculate cost impact
-        old_cost = cost_calculator.calculate_client_cost(client)
-
+        # Analyze migration impact
         temp_client_config = client.model_copy()
         temp_client_config.ecommerce_provider = target_ecommerce
-        new_cost = cost_calculator.calculate_client_cost(temp_client_config)
-
-        cost_change = new_cost.total_estimated_cost - old_cost.total_estimated_cost
 
         # Display migration preview
         _display_ecommerce_migration_preview(
-            client, current_ecommerce, target_ecommerce, cost_change
+            client, current_ecommerce, target_ecommerce
         )
 
         if preview:
@@ -209,7 +196,6 @@ def mode(
     try:
         config_manager = ConfigManager()
         client_manager = ClientManager(config_manager)
-        cost_calculator = CostCalculator()
 
         # Get current client configuration
         client = client_manager.get_client(client_name)
@@ -236,17 +222,12 @@ def mode(
 
         console.print(f"\n[bold cyan]⚙️  Integration Mode Migration: {current_mode} → {target_mode}[/bold cyan]")
 
-        # Calculate cost impact
-        old_cost = cost_calculator.calculate_client_cost(client)
-
+        # Analyze migration impact
         temp_client_config = client.model_copy()
         temp_client_config.integration_mode = target_mode
-        new_cost = cost_calculator.calculate_client_cost(temp_client_config)
-
-        cost_change = new_cost.total_estimated_cost - old_cost.total_estimated_cost
 
         # Display migration preview
-        _display_mode_migration_preview(client, current_mode, target_mode, cost_change)
+        _display_mode_migration_preview(client, current_mode, target_mode)
 
         if preview:
             console.print("\n[yellow]Preview mode - no changes applied[/yellow]")
@@ -295,17 +276,19 @@ def _check_cms_compatibility(client, current_cms: str, target_cms: str, provider
     return issues
 
 
-def _display_cms_migration_preview(client, current_cms: str, target_cms: str, cost_change: float, issues: List[str]):
+def _display_cms_migration_preview(client, current_cms: str, target_cms: str, issues: List[str]):
     """Display CMS migration preview information."""
     preview_content = f"""[bold]Migration Details:[/bold]
 • Client: {client.name} ({client.company_name})
 • Current CMS: {current_cms}
 • Target CMS: {target_cms}
 • SSG Engine: {client.ssg_engine}
+• Integration Mode: {client.integration_mode}
 
-[bold]Cost Impact:[/bold]
-• Monthly change: {"+" if cost_change > 0 else ""}{cost_change:.2f} USD
-• New estimated total: ${client.estimated_monthly_cost + cost_change:.2f}/month"""
+[bold]Technical Changes:[/bold]
+• Content management system will change
+• Webhook endpoints will be updated
+• Editorial workflow may change"""
 
     if issues:
         preview_content += f"\n\n[bold yellow]Compatibility Warnings:[/bold yellow]"
@@ -315,25 +298,28 @@ def _display_cms_migration_preview(client, current_cms: str, target_cms: str, co
     console.print(Panel(preview_content, title="CMS Migration Preview", border_style="blue"))
 
 
-def _display_ecommerce_migration_preview(client, current_ecommerce: Optional[str], target_ecommerce: str, cost_change: float):
+def _display_ecommerce_migration_preview(client, current_ecommerce: Optional[str], target_ecommerce: str):
     """Display e-commerce migration preview information."""
     preview_content = f"""[bold]Migration Details:[/bold]
 • Client: {client.name} ({client.company_name})
 • Current E-commerce: {current_ecommerce or 'None'}
 • Target E-commerce: {target_ecommerce}
+• Integration Mode: {client.integration_mode}
 
-[bold]Cost Impact:[/bold]
-• Monthly change: {"+" if cost_change > 0 else ""}{cost_change:.2f} USD
-• New estimated total: ${client.estimated_monthly_cost + cost_change:.2f}/month"""
+[bold]Technical Changes:[/bold]
+• E-commerce platform will change
+• Payment processing setup needed
+• Product catalog will need migration
+• Webhook endpoints will be updated"""
 
     console.print(Panel(preview_content, title="E-commerce Migration Preview", border_style="magenta"))
 
 
-def _display_mode_migration_preview(client, current_mode: str, target_mode: str, cost_change: float):
+def _display_mode_migration_preview(client, current_mode: str, target_mode: str):
     """Display integration mode migration preview."""
     mode_descriptions = {
-        "direct": "Simple, lower cost, limited composition",
-        "event_driven": "Advanced, higher cost, full composition support"
+        "direct": "Simple integration, direct API calls, minimal setup",
+        "event_driven": "Advanced features, webhooks, real-time updates"
     }
 
     preview_content = f"""[bold]Migration Details:[/bold]
@@ -341,9 +327,11 @@ def _display_mode_migration_preview(client, current_mode: str, target_mode: str,
 • Current Mode: {current_mode} ({mode_descriptions[current_mode]})
 • Target Mode: {target_mode} ({mode_descriptions[target_mode]})
 
-[bold]Cost Impact:[/bold]
-• Monthly change: {"+" if cost_change > 0 else ""}{cost_change:.2f} USD
-• New estimated total: ${client.estimated_monthly_cost + cost_change:.2f}/month"""
+[bold]Technical Changes:[/bold]
+• Integration architecture will change
+• Provider communication method will change
+• Infrastructure components may be added/removed
+• Deployment configuration will be updated"""
 
     console.print(Panel(preview_content, title="Integration Mode Migration Preview", border_style="yellow"))
 
@@ -392,11 +380,12 @@ def _get_mode_migration_implications(current_mode: str, target_mode: str, client
             "benefits": [
                 "Full provider composition support",
                 "Better scalability and reliability",
-                "Advanced webhook and event handling"
+                "Advanced webhook and event handling",
+                "Real-time updates and synchronization"
             ],
             "tradeoffs": [
-                "Higher infrastructure costs",
-                "More complex debugging",
+                "More complex infrastructure setup",
+                "More complex debugging and monitoring",
                 "Additional AWS services required"
             ],
             "redeploy_required": True
@@ -404,14 +393,15 @@ def _get_mode_migration_implications(current_mode: str, target_mode: str, client
     else:  # direct mode
         return {
             "benefits": [
-                "Lower infrastructure costs",
-                "Simpler architecture",
-                "Faster builds and deployments"
+                "Simpler infrastructure architecture",
+                "Faster builds and deployments",
+                "Easier debugging and maintenance",
+                "Minimal service dependencies"
             ],
             "tradeoffs": [
                 "Limited provider composition",
                 "Less scalable for high traffic",
-                "Fewer advanced features"
+                "Fewer advanced integration features"
             ],
             "redeploy_required": True
         }

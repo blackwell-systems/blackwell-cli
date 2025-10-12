@@ -6,13 +6,12 @@ Commands are organized by functionality and provide the main user interface.
 """
 
 # Import all command modules for registration
-from blackwell.commands import init, create, deploy, cost, migrate, list, config, templates
+from blackwell.commands import init, create, deploy, migrate, list, config, templates
 
 __all__ = [
     "init",
     "create",
     "deploy",
-    "cost",
     "migrate",
     "list",
     "config",

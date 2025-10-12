@@ -34,7 +34,7 @@ PYTHON_REQUIRED_VERSION = "3.13"
 # Export main components
 from blackwell.core.config_manager import ConfigManager
 from blackwell.core.client_manager import ClientManager
-from blackwell.core.cost_calculator import CostCalculator
+# Cost calculator removed - platform focuses on capabilities, not pricing
 
 __all__ = [
     "__version__",
@@ -48,5 +48,4 @@ __all__ = [
     # "CLI_CLIENTS_FILE",  # REMOVED - deprecated in favor of registry/ directory
     "ConfigManager",
     "ClientManager",
-    "CostCalculator",
 ]

@@ -18,7 +18,7 @@ from typing import Optional
 
 from blackwell.core.config_manager import ConfigManager
 from blackwell.core.client_manager import ClientManager
-from blackwell.core.cost_calculator import CostCalculator
+# Cost calculator removed - platform focuses on capabilities, not pricing
 
 app = typer.Typer(help="🔧 Initialize workspace and create new projects")
 console = Console()
@@ -129,7 +129,6 @@ def project(
         # Initialize managers
         config_manager = ConfigManager()
         client_manager = ClientManager(config_manager)
-        cost_calculator = CostCalculator()
 
         # Check if client already exists
         if client_manager.get_client(name):
@@ -161,9 +160,7 @@ def project(
             provider_config = _apply_template(template, client_info)
         elif interactive:
             # Interactive provider selection
-            provider_config = _select_providers_interactive(
-                client_info, cost_calculator
-            )
+            provider_config = _select_providers_interactive(client_info)
         else:
             # Use defaults
             defaults = config_manager.get_defaults()
@@ -180,25 +177,20 @@ def project(
         # Create client
         client = client_manager.create_client(**client_config)
 
-        # Show cost estimation
-        if interactive or budget:
-            console.print("\n[bold]💰 Cost Estimation[/bold]")
-            cost_breakdown = cost_calculator.calculate_client_cost(client)
-            _show_cost_breakdown(cost_breakdown)
-
-            if budget and cost_breakdown.total_estimated_cost > budget:
-                console.print(f"[yellow]⚠ Estimated cost (${cost_breakdown.total_estimated_cost:.2f}) exceeds budget (${budget:.2f})[/yellow]")
-
-                if Confirm.ask("Would you like to see optimization suggestions?"):
-                    suggestions = cost_calculator.get_optimization_suggestions(client)
-                    _show_optimization_suggestions(suggestions)
+        # Show provider selection summary
+        if interactive:
+            console.print("\n[bold]🎯 Selected Configuration[/bold]")
+            console.print(f"  • CMS Provider: [green]{provider_config['cms_provider']}[/green]")
+            console.print(f"  • E-commerce: [blue]{provider_config['ecommerce_provider'] or 'None'}[/blue]")
+            console.print(f"  • SSG Engine: [cyan]{provider_config['ssg_engine']}[/cyan]")
+            console.print(f"  • Integration Mode: [yellow]{provider_config['integration_mode']}[/yellow]")
 
         # Show next steps
         console.print(f"\n[green]✅ Project '{name}' created successfully![/green]")
         console.print("\n[bold]Next Steps:[/bold]")
         console.print(f"  • blackwell deploy client {name} --preview")
-        console.print(f"  • blackwell cost estimate {name}")
         console.print(f"  • blackwell list clients")
+        console.print(f"  • blackwell templates list")
 
     except Exception as e:
         console.print(f"[red]Error creating project: {e}[/red]")
@@ -334,65 +326,46 @@ def _gather_client_info_interactive(
     }
 
 
-def _select_providers_interactive(client_info: dict, cost_calculator: CostCalculator) -> dict:
-    """Interactive provider selection with cost guidance."""
+def _select_providers_interactive(client_info: dict) -> dict:
+    """Interactive provider selection with capability guidance."""
     console.print("\n[bold]🎯 Provider Selection[/bold]")
 
-    # Budget analysis
-    budget = client_info.get("budget")
-    if budget:
-        console.print(f"[dim]Analyzing options within ${budget:.2f}/month budget...[/dim]")
+    # Quick template recommendations
+    console.print("[dim]Choose from popular configurations or customize your own...[/dim]")
 
-        # Show budget-appropriate combinations
-        base_config = {
-            "name": client_info["name"],
-            "company_name": client_info["company_name"],
-            "domain": client_info["domain"],
-            "contact_email": client_info["contact_email"],
-            "ssg_engine": "astro",  # Default for comparison
+    console.print("\n[bold]Popular Configurations:[/bold]")
+    console.print("• [green]1. Simple Blog[/green]: Git-based CMS + Static hosting")
+    console.print("• [green]2. Business Site[/green]: User-friendly CMS + Optional e-commerce")
+    console.print("• [green]3. E-commerce Store[/green]: Structured CMS + Full shopping cart")
+    console.print("• [green]4. Custom Setup[/green]: Choose individual components")
+
+    config_choice = Prompt.ask(
+        "Select configuration type",
+        choices=["1", "2", "3", "4", "custom"],
+        default="4"
+    )
+
+    if config_choice == "1":
+        return {
+            "cms_provider": "decap",
+            "ecommerce_provider": None,
+            "ssg_engine": "eleventy",
+            "integration_mode": "direct",
+        }
+    elif config_choice == "2":
+        return {
+            "cms_provider": "tina",
+            "ecommerce_provider": None,
+            "ssg_engine": "astro",
+            "integration_mode": "direct",
+        }
+    elif config_choice == "3":
+        return {
+            "cms_provider": "sanity",
+            "ecommerce_provider": "snipcart",
+            "ssg_engine": "astro",
             "integration_mode": "event_driven",
         }
-
-        combinations = cost_calculator.compare_providers(
-            base_config, budget_limit=budget
-        )
-
-        if combinations:
-            console.print(f"\n[green]Found {len(combinations)} options within budget:[/green]")
-
-            table = Table(title="Budget-Friendly Options")
-            table.add_column("Option", style="cyan")
-            table.add_column("CMS", style="green")
-            table.add_column("E-commerce", style="blue")
-            table.add_column("Monthly Cost", style="yellow")
-            table.add_column("Cost Tier", style="magenta")
-
-            for i, combo in enumerate(combinations[:5], 1):  # Show top 5
-                table.add_row(
-                    str(i),
-                    combo["cms_provider"],
-                    combo["ecommerce_provider"] or "None",
-                    f"${combo['cost'].total_estimated_cost:.2f}",
-                    combo["cost"].cost_tier.value
-                )
-
-            console.print(table)
-
-            # Let user choose from recommendations
-            choice = Prompt.ask(
-                "Select an option (1-5) or 'custom'",
-                choices=[str(i) for i in range(1, min(6, len(combinations) + 1))] + ["custom"],
-                default="1"
-            )
-
-            if choice != "custom":
-                selected = combinations[int(choice) - 1]
-                return {
-                    "cms_provider": selected["cms_provider"],
-                    "ecommerce_provider": selected["ecommerce_provider"],
-                    "ssg_engine": "astro",
-                    "integration_mode": "event_driven",
-                }
 
     # Custom provider selection
     console.print("\n[bold]Custom Provider Selection[/bold]")
@@ -400,10 +373,10 @@ def _select_providers_interactive(client_info: dict, cost_calculator: CostCalcul
     # CMS Provider
     cms_options = ["decap", "tina", "sanity", "contentful"]
     console.print("\n[bold]CMS Providers:[/bold]")
-    console.print("• [green]decap[/green]: FREE, git-based, technical")
-    console.print("• [green]tina[/green]: $29/month, visual editing")
-    console.print("• [green]sanity[/green]: $99/month, structured content")
-    console.print("• [green]contentful[/green]: $300/month, enterprise features")
+    console.print("• [green]decap[/green]: Git-based workflow, Markdown editing, developer-friendly")
+    console.print("• [green]tina[/green]: Visual editing, live preview, user-friendly interface")
+    console.print("• [green]sanity[/green]: Structured content, real-time API, powerful querying")
+    console.print("• [green]contentful[/green]: Enterprise features, CDN delivery, rich ecosystem")
 
     cms_provider = Prompt.ask(
         "CMS Provider",
@@ -418,9 +391,9 @@ def _select_providers_interactive(client_info: dict, cost_calculator: CostCalcul
     if need_ecommerce:
         ecommerce_options = ["snipcart", "foxy", "shopify_basic"]
         console.print("\n[bold]E-commerce Providers:[/bold]")
-        console.print("• [blue]snipcart[/blue]: $29/month + 2% fees, simple")
-        console.print("• [blue]foxy[/blue]: $75/month + 1.5% fees, advanced")
-        console.print("• [blue]shopify_basic[/blue]: $29/month + 2.9% fees, full platform")
+        console.print("• [blue]snipcart[/blue]: Simple integration, cart overlay, easy setup")
+        console.print("• [blue]foxy[/blue]: Advanced features, flexible checkout, detailed analytics")
+        console.print("• [blue]shopify_basic[/blue]: Full platform, inventory management, extensive apps")
 
         ecommerce_provider = Prompt.ask(
             "E-commerce Provider",
@@ -431,12 +404,12 @@ def _select_providers_interactive(client_info: dict, cost_calculator: CostCalcul
     # SSG Engine
     ssg_options = ["hugo", "eleventy", "astro", "gatsby", "nextjs", "nuxtjs"]
     console.print("\n[bold]SSG Engines:[/bold]")
-    console.print("• [cyan]hugo[/cyan]: Fastest builds, technical")
-    console.print("• [cyan]eleventy[/cyan]: Balanced, flexible")
-    console.print("• [cyan]astro[/cyan]: Modern, component islands")
-    console.print("• [cyan]gatsby[/cyan]: React ecosystem")
-    console.print("• [cyan]nextjs[/cyan]: React apps, enterprise")
-    console.print("• [cyan]nuxtjs[/cyan]: Vue ecosystem")
+    console.print("• [cyan]hugo[/cyan]: Go-based, template system, content organization")
+    console.print("• [cyan]eleventy[/cyan]: JavaScript, flexible templating, minimal setup")
+    console.print("• [cyan]astro[/cyan]: Component islands, modern JS, hybrid rendering")
+    console.print("• [cyan]gatsby[/cyan]: React-based, GraphQL, plugin ecosystem")
+    console.print("• [cyan]nextjs[/cyan]: React framework, API routes, full-stack capabilities")
+    console.print("• [cyan]nuxtjs[/cyan]: Vue framework, server-side rendering, auto-routing")
 
     ssg_engine = Prompt.ask(
         "SSG Engine",
@@ -447,8 +420,8 @@ def _select_providers_interactive(client_info: dict, cost_calculator: CostCalcul
     # Integration Mode
     mode_options = ["direct", "event_driven"]
     console.print("\n[bold]Integration Mode:[/bold]")
-    console.print("• [yellow]direct[/yellow]: Simple, lower cost")
-    console.print("• [yellow]event_driven[/yellow]: Composition-ready, more features")
+    console.print("• [yellow]direct[/yellow]: Simple integration, direct API calls, minimal setup")
+    console.print("• [yellow]event_driven[/yellow]: Advanced features, webhooks, real-time updates")
 
     # Auto-select based on composition needs
     default_mode = "event_driven" if ecommerce_provider else "direct"
@@ -470,29 +443,35 @@ def _apply_template(template: str, client_info: dict) -> dict:
     """Apply a template to get provider configuration."""
     # Built-in templates
     templates = {
-        "budget-startup": {
+        "simple-blog": {
             "cms_provider": "decap",
-            "ecommerce_provider": "snipcart",
+            "ecommerce_provider": None,
             "ssg_engine": "eleventy",
-            "integration_mode": "event_driven",
+            "integration_mode": "direct",
         },
-        "growing-business": {
+        "business-site": {
+            "cms_provider": "tina",
+            "ecommerce_provider": None,
+            "ssg_engine": "astro",
+            "integration_mode": "direct",
+        },
+        "e-commerce": {
             "cms_provider": "sanity",
             "ecommerce_provider": "snipcart",
             "ssg_engine": "astro",
             "integration_mode": "event_driven",
         },
-        "enterprise": {
+        "advanced-cms": {
             "cms_provider": "contentful",
-            "ecommerce_provider": "shopify_basic",
+            "ecommerce_provider": None,
             "ssg_engine": "gatsby",
             "integration_mode": "event_driven",
         },
-        "cms-only": {
-            "cms_provider": "tina",
-            "ecommerce_provider": None,
-            "ssg_engine": "astro",
-            "integration_mode": "direct",
+        "full-stack": {
+            "cms_provider": "contentful",
+            "ecommerce_provider": "shopify_basic",
+            "ssg_engine": "nextjs",
+            "integration_mode": "event_driven",
         },
     }
 
@@ -504,59 +483,8 @@ def _apply_template(template: str, client_info: dict) -> dict:
     return templates[template]
 
 
-def _show_cost_breakdown(cost_breakdown) -> None:
-    """Show detailed cost breakdown."""
-    table = Table(title="Cost Breakdown")
-    table.add_column("Component", style="cyan")
-    table.add_column("Monthly Cost", style="green")
-    table.add_column("Notes", style="dim")
-
-    table.add_row("CMS Provider", f"${cost_breakdown.cms_cost:.2f}", "Content management")
-    table.add_row("E-commerce Provider", f"${cost_breakdown.ecommerce_cost:.2f}", "Online store platform")
-    table.add_row("AWS Hosting", f"${cost_breakdown.hosting_cost:.2f}", "Infrastructure hosting")
-    table.add_row("Event Infrastructure", f"${cost_breakdown.event_infrastructure_cost:.2f}", "Composition features")
-    table.add_row("Data Transfer", f"${cost_breakdown.data_transfer_cost:.2f}", "CDN and bandwidth")
-    table.add_row("Storage", f"${cost_breakdown.storage_cost:.2f}", "File and asset storage")
-    table.add_row("", "", "")
-    table.add_row("[bold]Total Fixed Cost[/bold]", f"[bold]${cost_breakdown.fixed_monthly_cost:.2f}[/bold]", "Monthly fixed costs")
-
-    if cost_breakdown.transaction_fee_rate > 0:
-        table.add_row("Transaction Fees", f"{cost_breakdown.transaction_fee_rate:.1%}", "Per-sale variable cost")
-
-    console.print(table)
-
-    # Cost tier indication
-    tier_colors = {
-        "budget": "green",
-        "standard": "yellow",
-        "professional": "blue",
-        "enterprise": "red",
-    }
-    tier_color = tier_colors.get(cost_breakdown.cost_tier.value, "white")
-    console.print(f"\n[{tier_color}]Cost Tier: {cost_breakdown.cost_tier.value.title()}[/{tier_color}]")
 
 
-def _show_optimization_suggestions(suggestions: list) -> None:
-    """Show cost optimization suggestions."""
-    if not suggestions:
-        console.print("[green]No optimization suggestions available[/green]")
-        return
-
-    console.print("\n[bold]💡 Cost Optimization Suggestions[/bold]")
-
-    for i, suggestion in enumerate(suggestions, 1):
-        panel_content = f"[bold]{suggestion['suggestion']}[/bold]\n"
-        panel_content += f"Reason: {suggestion['reason']}\n"
-        panel_content += f"Monthly Savings: [green]${suggestion['monthly_savings']:.2f}[/green]\n"
-
-        if suggestion.get('trade_offs'):
-            panel_content += f"Trade-offs: {', '.join(suggestion['trade_offs'])}"
-
-        console.print(Panel(
-            panel_content,
-            title=f"Suggestion {i}",
-            border_style="blue"
-        ))
 
 
 def _show_troubleshooting_tips(issues: list) -> None:

@@ -8,10 +8,9 @@ and platform integration.
 
 from blackwell.core.config_manager import ConfigManager
 from blackwell.core.client_manager import ClientManager
-from blackwell.core.cost_calculator import CostCalculator
+# Cost calculator removed - platform focuses on capabilities, not pricing
 
 __all__ = [
     "ConfigManager",
     "ClientManager",
-    "CostCalculator",
 ]

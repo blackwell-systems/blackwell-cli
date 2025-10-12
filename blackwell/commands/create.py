@@ -21,7 +21,7 @@ from pathlib import Path
 from blackwell.core.config_manager import ConfigManager
 from blackwell.core.client_manager import ClientManager, CLIClientConfig
 from blackwell.core.provider_matrix import ProviderMatrix
-from blackwell.core.cost_calculator import CostCalculator, CostBreakdown
+# Cost calculator removed - platform focuses on capabilities, not pricing
 
 app = typer.Typer(help="📦 Create clients, stacks, and templates", no_args_is_help=True)
 console = Console()
@@ -34,14 +34,13 @@ class InteractiveClientWizard:
         self.config_manager = config_manager
         self.client_manager = client_manager
         self.provider_matrix = ProviderMatrix()
-        self.cost_calculator = CostCalculator()
 
-    def run_wizard(self, client_name: str, budget: Optional[float] = None) -> CLIClientConfig:
+    def run_wizard(self, client_name: str) -> CLIClientConfig:
         """Run the complete interactive client creation wizard."""
         console.print(Panel(
             "[bold blue]🚀 Blackwell CLI - Client Setup Wizard[/bold blue]\n\n"
             "Create a new client with intelligent provider recommendations\n"
-            "and cost optimization based on your requirements.",
+            "based on your technical requirements and use case.",
             title="Welcome to Client Creation",
             border_style="blue"
         ))
@@ -49,8 +48,8 @@ class InteractiveClientWizard:
         # Step 1: Collect basic information
         basic_info = self._collect_basic_info(client_name)
 
-        # Step 2: Determine budget and requirements
-        requirements = self._collect_requirements(budget)
+        # Step 2: Determine requirements and preferences
+        requirements = self._collect_requirements()
 
         # Step 3: Get provider recommendations
         recommendations = self._get_provider_recommendations(basic_info, requirements)
@@ -84,48 +83,71 @@ class InteractiveClientWizard:
             "contact_email": contact_email
         }
 
-    def _collect_requirements(self, budget: Optional[float] = None) -> Dict[str, Any]:
-        """Collect project requirements and constraints."""
-        console.print("\n[bold cyan]💰 Budget & Requirements[/bold cyan]")
+    def _collect_requirements(self) -> Dict[str, Any]:
+        """Collect project requirements and technical preferences."""
+        console.print("\n[bold cyan]🎯 Project Requirements[/bold cyan]")
 
-        if budget is None:
-            budget = FloatPrompt.ask("Monthly budget (USD)", default=150.0)
+        # Project type and use case
+        console.print("\n[dim]What type of project are you building?[/dim]")
+        console.print("1. Simple Blog/Portfolio - Content-focused site")
+        console.print("2. Business Website - Company site with CMS")
+        console.print("3. E-commerce Store - Online store with shopping cart")
+        console.print("4. Complex Application - Advanced features and integrations")
 
-        # Estimate monthly sales for e-commerce recommendations
-        needs_ecommerce = Confirm.ask("Do you need e-commerce functionality?", default=True)
-        monthly_sales = 0.0
-        if needs_ecommerce:
-            monthly_sales = FloatPrompt.ask("Estimated monthly sales (USD)", default=5000.0)
+        project_type_choice = IntPrompt.ask("Choose project type", default=2, show_choices=False)
+        project_types = {
+            1: "blog",
+            2: "business_site",
+            3: "ecommerce",
+            4: "application"
+        }
+        project_type = project_types.get(project_type_choice, "business_site")
+
+        # E-commerce needs
+        needs_ecommerce = project_type == "ecommerce" or Confirm.ask(
+            "Do you need e-commerce functionality?",
+            default=(project_type in ["ecommerce", "application"])
+        )
 
         # Technical complexity preference
         console.print("\n[dim]Technical complexity preference:[/dim]")
-        console.print("1. Beginner - Simple setup, visual tools")
+        console.print("1. Beginner - Simple setup, visual tools, minimal configuration")
         console.print("2. Intermediate - Balanced features and complexity")
-        console.print("3. Advanced - Full control, technical tools")
+        console.print("3. Advanced - Full control, technical tools, custom integrations")
 
         complexity_choice = IntPrompt.ask("Choose complexity level", default=2, show_choices=False)
         complexity_map = {1: "beginner", 2: "intermediate", 3: "advanced"}
         complexity = complexity_map.get(complexity_choice, "intermediate")
 
-        # Integration mode preference
-        integration_mode = "event_driven" if needs_ecommerce else "direct"
-        if needs_ecommerce:
+        # Integration mode preference based on needs
+        integration_mode = "event_driven" if needs_ecommerce or project_type == "application" else "direct"
+        if needs_ecommerce or project_type == "application":
             wants_composition = Confirm.ask(
-                "Enable composition features? (Allows mixing providers easily)",
+                "Enable advanced integrations? (Webhooks, real-time updates, provider composition)",
                 default=True
             )
             integration_mode = "event_driven" if wants_composition else "direct"
 
+        # Content editing preference
+        console.print("\n[dim]Content editing preference:[/dim]")
+        console.print("1. Technical - Git-based, markdown, developer workflow")
+        console.print("2. User-friendly - Visual editor, live preview")
+        console.print("3. Professional - Structured content, advanced features")
+
+        editing_choice = IntPrompt.ask("Choose editing style", default=2, show_choices=False)
+        editing_styles = {1: "technical", 2: "user_friendly", 3: "professional"}
+        editing_preference = editing_styles.get(editing_choice, "user_friendly")
+
         return {
-            "budget": budget,
+            "project_type": project_type,
             "needs_ecommerce": needs_ecommerce,
-            "monthly_sales": monthly_sales,
             "complexity": complexity,
-            "integration_mode": integration_mode
+            "integration_mode": integration_mode,
+            "editing_preference": editing_preference
         }
 
     def _get_provider_recommendations(self, basic_info: Dict, requirements: Dict) -> List[Dict]:
-        """Get intelligent provider recommendations based on requirements."""
+        """Get intelligent provider recommendations based on technical requirements."""
         console.print("\n[bold cyan]🎯 Generating Recommendations[/bold cyan]")
 
         with Progress(
@@ -134,7 +156,7 @@ class InteractiveClientWizard:
         ) as progress:
             task = progress.add_task("Analyzing provider combinations...", total=None)
 
-            # Create base configuration for cost analysis
+            # Create base configuration
             base_config = {
                 **basic_info,
                 "service_tier": "tier1",
@@ -142,37 +164,41 @@ class InteractiveClientWizard:
                 "integration_mode": requirements["integration_mode"]
             }
 
-            # Get all possible combinations within budget
-            all_combinations = []
+            recommendations = []
 
-            # CMS-only combinations
+            # Capability-based provider matching
             if not requirements["needs_ecommerce"]:
-                for cms in self.provider_matrix.cms_providers:
-                    for ssg in self.provider_matrix.ssg_engines:
+                # CMS-only recommendations based on editing preference and complexity
+                cms_recommendations = self._get_cms_recommendations(requirements)
+                ssg_recommendations = self._get_ssg_recommendations(requirements)
+
+                # Create combinations
+                for cms in cms_recommendations[:2]:  # Top 2 CMS choices
+                    for ssg in ssg_recommendations[:2]:  # Top 2 SSG choices
                         if self.provider_matrix.is_combination_compatible(cms, None, ssg):
                             config = {**base_config, "cms_provider": cms, "ssg_engine": ssg}
-                            client = CLIClientConfig.model_validate(config)
-                            cost = self.cost_calculator.calculate_client_cost(
-                                client, requirements["monthly_sales"]
-                            )
 
-                            if cost.total_estimated_cost <= requirements["budget"]:
-                                complexity = self.provider_matrix.get_complexity_level(cms, None, ssg)
-                                all_combinations.append({
-                                    "config": config,
-                                    "cost": cost,
-                                    "complexity": complexity,
-                                    "type": "cms_only",
-                                    "cms_provider": cms,
-                                    "ecommerce_provider": None,
-                                    "ssg_engine": ssg
-                                })
-
-            # CMS + E-commerce combinations
+                            recommendations.append({
+                                "config": config,
+                                "complexity": requirements["complexity"],
+                                "type": "cms_only",
+                                "cms_provider": cms,
+                                "ecommerce_provider": None,
+                                "ssg_engine": ssg,
+                                "match_score": self._calculate_capability_match_score(
+                                    cms, None, ssg, requirements
+                                )
+                            })
             else:
-                for cms in self.provider_matrix.cms_providers:
-                    for ecommerce in self.provider_matrix.ecommerce_providers:
-                        for ssg in self.provider_matrix.ssg_engines:
+                # E-commerce enabled recommendations
+                cms_recommendations = self._get_cms_recommendations(requirements)
+                ecommerce_recommendations = self._get_ecommerce_recommendations(requirements)
+                ssg_recommendations = self._get_ssg_recommendations(requirements)
+
+                # Create combinations
+                for cms in cms_recommendations[:2]:
+                    for ecommerce in ecommerce_recommendations[:2]:
+                        for ssg in ssg_recommendations[:2]:
                             if self.provider_matrix.is_combination_compatible(cms, ecommerce, ssg):
                                 config = {
                                     **base_config,
@@ -180,59 +206,105 @@ class InteractiveClientWizard:
                                     "ecommerce_provider": ecommerce,
                                     "ssg_engine": ssg
                                 }
-                                client = CLIClientConfig.model_validate(config)
-                                cost = self.cost_calculator.calculate_client_cost(
-                                    client, requirements["monthly_sales"]
-                                )
 
-                                if cost.total_estimated_cost <= requirements["budget"]:
-                                    complexity = self.provider_matrix.get_complexity_level(cms, ecommerce, ssg)
-                                    all_combinations.append({
-                                        "config": config,
-                                        "cost": cost,
-                                        "complexity": complexity,
-                                        "type": "composed",
-                                        "cms_provider": cms,
-                                        "ecommerce_provider": ecommerce,
-                                        "ssg_engine": ssg
-                                    })
+                                recommendations.append({
+                                    "config": config,
+                                    "complexity": requirements["complexity"],
+                                    "type": "composed",
+                                    "cms_provider": cms,
+                                    "ecommerce_provider": ecommerce,
+                                    "ssg_engine": ssg,
+                                    "match_score": self._calculate_capability_match_score(
+                                        cms, ecommerce, ssg, requirements
+                                    )
+                                })
 
-            progress.update(task, description="Filtering and ranking recommendations...")
+            progress.update(task, description="Ranking recommendations by capability match...")
 
-            # Filter by complexity preference
-            filtered_combinations = [
-                combo for combo in all_combinations
-                if combo["complexity"] == requirements["complexity"]
-            ]
+            # Sort by capability match score (descending) and limit to top 5
+            recommendations.sort(key=lambda x: x["match_score"], reverse=True)
+            return recommendations[:5]
 
-            # If no exact matches, include adjacent complexity levels
-            if not filtered_combinations:
-                complexity_order = ["beginner", "intermediate", "advanced", "enterprise"]
-                target_idx = complexity_order.index(requirements["complexity"])
+    def _get_cms_recommendations(self, requirements: Dict) -> List[str]:
+        """Get CMS recommendations based on editing preference and complexity."""
+        editing_preference = requirements["editing_preference"]
+        complexity = requirements["complexity"]
 
-                # Include adjacent levels
-                acceptable_complexities = set()
-                for offset in [-1, 0, 1]:
-                    idx = target_idx + offset
-                    if 0 <= idx < len(complexity_order):
-                        acceptable_complexities.add(complexity_order[idx])
+        if editing_preference == "technical":
+            return ["decap", "hugo", "jekyll"]
+        elif editing_preference == "professional":
+            return ["sanity", "contentful", "strapi"]
+        else:  # user_friendly
+            return ["tina", "forestry", "decap"]
 
-                filtered_combinations = [
-                    combo for combo in all_combinations
-                    if combo["complexity"] in acceptable_complexities
-                ]
+    def _get_ssg_recommendations(self, requirements: Dict) -> List[str]:
+        """Get SSG recommendations based on complexity and project type."""
+        complexity = requirements["complexity"]
+        project_type = requirements["project_type"]
 
-            # Sort by cost (ascending) and limit to top 5
-            filtered_combinations.sort(key=lambda x: x["cost"].total_estimated_cost)
-            return filtered_combinations[:5]
+        if complexity == "beginner":
+            return ["eleventy", "hugo", "astro"]
+        elif complexity == "advanced":
+            return ["nextjs", "gatsby", "nuxtjs"]
+        else:  # intermediate
+            return ["astro", "gatsby", "eleventy"]
+
+    def _get_ecommerce_recommendations(self, requirements: Dict) -> List[str]:
+        """Get e-commerce recommendations based on complexity and project type."""
+        complexity = requirements["complexity"]
+        project_type = requirements["project_type"]
+
+        if complexity == "beginner":
+            return ["snipcart", "foxy"]
+        elif complexity == "advanced":
+            return ["shopify_basic", "medusa", "commercejs"]
+        else:  # intermediate
+            return ["snipcart", "shopify_basic", "foxy"]
+
+    def _calculate_capability_match_score(self, cms: str, ecommerce: Optional[str], ssg: str, requirements: Dict) -> float:
+        """Calculate how well this combination matches the user's requirements."""
+        score = 0.0
+
+        # Base compatibility check
+        if self.provider_matrix.is_combination_compatible(cms, ecommerce, ssg):
+            score += 10.0
+
+        # Complexity alignment
+        target_complexity = requirements["complexity"]
+        combination_complexity = self.provider_matrix.get_complexity_level(cms, ecommerce, ssg)
+        if combination_complexity == target_complexity:
+            score += 20.0
+        elif abs(["beginner", "intermediate", "advanced"].index(combination_complexity) -
+                 ["beginner", "intermediate", "advanced"].index(target_complexity)) == 1:
+            score += 10.0
+
+        # Project type alignment
+        project_type = requirements["project_type"]
+        if project_type == "blog" and not ecommerce:
+            score += 15.0
+        elif project_type == "ecommerce" and ecommerce:
+            score += 20.0
+        elif project_type == "application" and requirements["integration_mode"] == "event_driven":
+            score += 15.0
+
+        # Editing preference alignment
+        editing_pref = requirements["editing_preference"]
+        if editing_pref == "technical" and cms in ["decap", "hugo", "jekyll"]:
+            score += 10.0
+        elif editing_pref == "professional" and cms in ["sanity", "contentful"]:
+            score += 10.0
+        elif editing_pref == "user_friendly" and cms in ["tina", "forestry"]:
+            score += 10.0
+
+        return score
 
     def _select_provider_combination(self, recommendations: List[Dict], requirements: Dict) -> Dict:
         """Display recommendations and let user select."""
-        console.print(f"\n[bold cyan]🎯 Recommended Configurations (Budget: ${requirements['budget']}/month)[/bold cyan]")
+        console.print(f"\n[bold cyan]🎯 Recommended Configurations (Project: {requirements['project_type'].replace('_', ' ').title()})[/bold cyan]")
 
         if not recommendations:
-            console.print("[red]❌ No configurations found within your budget and requirements.[/red]")
-            console.print("[yellow]💡 Try increasing your budget or adjusting complexity preferences.[/yellow]")
+            console.print("[red]❌ No configurations found matching your requirements.[/red]")
+            console.print("[yellow]💡 Try adjusting your complexity level or project type preferences.[/yellow]")
             raise typer.Exit(1)
 
         # Display recommendations table
@@ -241,7 +313,7 @@ class InteractiveClientWizard:
         table.add_column("CMS", style="blue")
         table.add_column("E-commerce", style="magenta")
         table.add_column("SSG", style="green")
-        table.add_column("Monthly Cost", style="yellow")
+        table.add_column("Match Score", style="yellow")
         table.add_column("Complexity", style="white")
         table.add_column("Best For", style="dim")
 
@@ -257,16 +329,16 @@ class InteractiveClientWizard:
                 f"{cms_info.get('name', combo['cms_provider'])}",
                 ecommerce_name,
                 combo["ssg_engine"].title(),
-                f"${combo['cost'].total_estimated_cost:.0f}",
+                f"{combo['match_score']:.1f}",
                 combo["complexity"].title(),
                 best_for
             )
 
         console.print(table)
 
-        # Show detailed breakdown for top recommendation
+        # Show detailed information for top recommendation
         top_recommendation = recommendations[0]
-        self._show_cost_breakdown(top_recommendation["cost"], "🥇 Top Recommendation")
+        self._show_capability_summary(top_recommendation, "🥇 Top Recommendation")
 
         # Let user select
         choice = IntPrompt.ask(
@@ -277,7 +349,7 @@ class InteractiveClientWizard:
 
         if 1 <= choice <= len(recommendations):
             selected = recommendations[choice - 1]
-            self._show_cost_breakdown(selected["cost"], f"Selected Configuration #{choice}")
+            self._show_capability_summary(selected, f"Selected Configuration #{choice}")
             return selected
         else:
             console.print("[red]Invalid selection[/red]")
@@ -287,33 +359,55 @@ class InteractiveClientWizard:
         """Get a description of what this combination is best for."""
         cms = combo["cms_provider"]
         ecommerce = combo["ecommerce_provider"]
-        cost = combo["cost"].total_estimated_cost
+        complexity = combo["complexity"]
+        combo_type = combo["type"]
 
-        if cost < 100:
-            return "Budget-conscious startups"
-        elif cost < 200:
-            return "Growing businesses"
-        elif cost < 400:
-            return "Professional companies"
-        else:
-            return "Enterprise organizations"
+        if complexity == "beginner":
+            if combo_type == "cms_only":
+                return "Simple blogs and portfolios"
+            else:
+                return "Small online stores"
+        elif complexity == "intermediate":
+            if combo_type == "cms_only":
+                return "Business websites"
+            else:
+                return "Growing e-commerce sites"
+        else:  # advanced
+            if combo_type == "cms_only":
+                return "Complex content sites"
+            else:
+                return "Enterprise applications"
 
-    def _show_cost_breakdown(self, cost: CostBreakdown, title: str):
-        """Display detailed cost breakdown."""
-        breakdown = f"""[bold]Fixed Monthly Costs:[/bold]
-• CMS: ${cost.cms_cost:.0f}/month
-• E-commerce: ${cost.ecommerce_cost:.0f}/month
-• AWS Hosting: ${cost.hosting_cost:.0f}/month
-• Event Infrastructure: ${cost.event_infrastructure_cost:.0f}/month
+    def _show_capability_summary(self, combo: Dict, title: str):
+        """Display detailed capability summary."""
+        cms = combo["cms_provider"]
+        ecommerce = combo["ecommerce_provider"]
+        ssg = combo["ssg_engine"]
 
-[bold]Variable Costs:[/bold]
-• Transaction Fees: {cost.transaction_fee_rate*100:.1f}% of sales
-• Build Cost: ${cost.build_cost_per_build:.3f} per build
+        # Get provider capabilities
+        cms_info = self.provider_matrix.get_provider_info("cms", cms) or {}
 
-[bold]Monthly Total: ${cost.total_estimated_cost:.0f}[/bold]
-[dim]Cost Tier: {cost.cost_tier.value.title()}[/dim]"""
+        summary = f"""[bold]Configuration Overview:[/bold]
+• CMS: {cms.title()} - {cms_info.get('description', 'Content management system')}
+• E-commerce: {ecommerce.title() if ecommerce else 'None'}
+• SSG Engine: {ssg.title()}
+• Integration Mode: {combo['config']['integration_mode'].replace('_', ' ').title()}
 
-        console.print(Panel(breakdown, title=title, border_style="green"))
+[bold]Key Capabilities:[/bold]
+• Complexity Level: {combo['complexity'].title()}
+• Match Score: {combo['match_score']:.1f}/100
+• Type: {combo['type'].replace('_', ' ').title()}
+
+[bold]Technical Features:[/bold]
+• Content editing workflow
+• Static site generation
+• Provider integrations"""
+
+        if ecommerce:
+            summary += "\n• E-commerce functionality"
+
+        console.print(Panel(summary, title=title, border_style="green"))
+
 
     def _review_and_confirm(self, basic_info: Dict, selected_config: Dict, requirements: Dict) -> Dict:
         """Review final configuration and confirm."""
@@ -382,7 +476,6 @@ class InteractiveClientWizard:
 def client(
     name: str = typer.Argument(..., help="Client name (kebab-case)"),
     interactive: bool = typer.Option(True, "--interactive/--no-interactive", help="Interactive setup"),
-    budget: Optional[float] = typer.Option(None, "--budget", "-b", help="Monthly budget in USD"),
     company: Optional[str] = typer.Option(None, "--company", help="Company name"),
     domain: Optional[str] = typer.Option(None, "--domain", help="Primary domain"),
     email: Optional[str] = typer.Option(None, "--email", help="Contact email"),
@@ -394,8 +487,8 @@ def client(
     """
     Create a new client configuration with intelligent provider recommendations.
 
-    Interactive mode provides guided setup with cost optimization and provider
-    recommendations based on your budget and requirements.
+    Interactive mode provides guided setup with capability-focused provider
+    recommendations based on your technical requirements and use case.
 
     Non-interactive mode allows direct specification of all parameters.
     """
@@ -406,7 +499,7 @@ def client(
         if interactive:
             # Run interactive wizard
             wizard = InteractiveClientWizard(config_manager, client_manager)
-            client = wizard.run_wizard(name, budget)
+            client = wizard.run_wizard(name)
 
             console.print(f"\n[bold green]🎉 Ready to deploy![/bold green]")
             console.print(f"Run: [bold cyan]blackwell deploy {client.name}[/bold cyan]")

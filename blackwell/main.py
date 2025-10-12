@@ -19,7 +19,6 @@ from blackwell.commands import (
     create,
     delete,
     deploy,
-    cost,
     migrate,
     list as list_cmd,
     config,
@@ -42,12 +41,12 @@ app = typer.Typer(
     {CLI_NAME.title()} CLI - Simplify composable web stack deployment
 
     Create, deploy, and manage sophisticated multi-client web infrastructure
-    with intelligent provider selection and cost optimization.
+    with intelligent provider selection and capability-focused recommendations.
 
     Features:
     • Mix any CMS (Decap, Tina, Sanity, Contentful) with any E-commerce provider
     • Dual-mode architecture: Direct (simple) or Event-Driven (composition-ready)
-    • Cost optimization based on provider choice
+    • Intelligent provider recommendations based on technical capabilities
     • Automated deployment with AWS CDK integration
     • Provider migration and upgrade assistance
 
@@ -127,7 +126,7 @@ def main(
     Blackwell CLI - Simplify composable web stack deployment.
 
     Create and manage sophisticated multi-client web infrastructure with
-    intelligent provider selection and automated cost optimization.
+    intelligent provider selection and capability-focused recommendations.
     """
     # Set up global configuration
     global config_manager
@@ -179,12 +178,7 @@ deploy.app.add_typer(
     rich_help_panel="Bootstrap Management",
 )
 
-app.add_typer(
-    cost.app,
-    name="cost",
-    help="Estimate costs and optimize spending",
-    rich_help_panel="Cost Management",
-)
+# Cost command removed - platform focuses on capabilities, not pricing
 
 app.add_typer(
     migrate.app,
